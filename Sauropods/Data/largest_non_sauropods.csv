@@ -1,0 +1,24 @@
+"","X.1","X","taxon","mean.mass..kg.","ln.mean.mass..kg.","low.estimate..kg.","ln.low.estimate..kg.","high.estimate..kg.","ln.high.estimate..kg.","error.bar.low..kg.","error.bar.high..kg.","source","...11"
+"1",1,1,"Deinotherium proavum","16850","9.732105935780508","13500","9.5104449644265205","18600","9.8309168597012935","3350","1750","Larramendi (2016:table 8)",NA
+"2",2,2,"Baluchitherium/Paraceratherium/Indricotherium","17231","9.7544653661430996","12923.109314832232","9.4667724074255926","21538.515524720387","9.9775980311915831","4307.8906851677675","4307.5155247203875","based on data given in Granger & Gregory (1936)",NA
+"3",3,3,"Mammuthus trogontherii","17450","9.7670949276305734","14100","9.5539300763662602","19500","9.8781697445518386","3350","2050","Larramendi (2016:table 8)",NA
+"4",4,4,"Mammut borsoni","24450","10.104385494903019","20500","9.9281801651265003","28400","10.254144424149297","3950","3950","Larramendi (2016:table 8)",NA
+"5",5,5,"Palaeoloxodon antiquus","20750","9.9403015256588443","16700","9.7231639984048464","23000","10.043249494911286","4050","2250","Larramendi (2016:table 8)",NA
+"6",6,6,"note: for specimens cited from Larramendi (2016), using the boundary between categories 3 and 4 of Table 8 as maximum size; error is lower boundary of category 3 and upper boundary of category 4",NA,NA,NA,NA,NA,NA,NA,NA,NA,NA
+"7",7,7,NA,NA,NA,NA,NA,NA,NA,NA,NA,NA,NA
+"8",8,8,NA,NA,NA,NA,NA,NA,NA,NA,NA,NA,NA
+"9",9,9,"notes on Baluchitherium/Paraceritherium mass estimate, from Granger and Gregory 1936:",NA,NA,NA,NA,NA,NA,NA,NA,NA,NA
+"10",10,10,"femoral circumference of specimen AMNH 26169 (mm)",NA,"389",NA,NA,NA,NA,NA,NA,NA,NA
+"11",11,11,"femoral length of specimen AMNH 26169 (mm)",NA,"1190",NA,NA,NA,NA,NA,NA,NA,NA
+"12",12,12,"estimated largest femur length for the taxon (mm)",NA,"1660",NA,NA,NA,NA,NA,NA,NA,NA
+"13",13,13,"scaled estimated largest femoral circumference (mm)",NA,"542.63865546218483",NA,NA,NA,NA,NA,NA,NA,NA
+"14",14,14,"humeral circumference of specimen AMNH 26166 (mm)",NA,"486",NA,NA,NA,NA,NA,NA,NA,NA
+"15",15,15,"humeral length of specimen AMNH 26166 (mm)",NA,"985",NA,NA,NA,NA,NA,NA,NA,NA
+"16",16,16,"estimated largest humerus length (mm)",NA,"1200",NA,NA,NA,NA,NA,NA,NA,NA
+"17",17,17,"scaled estimated largest humeral circumfernce (mm)",NA,"592.08121827411173",NA,NA,NA,NA,NA,NA,NA,NA
+"18",18,18,NA,NA,NA,NA,NA,NA,NA,NA,NA,NA,NA
+"19",19,19,NA,NA,NA,NA,NA,NA,NA,NA,NA,NA,NA
+"20",20,20,"calculation of Baluchitherium/Paraceratherium/Indricotherium and Shantungosaurus mass estimates",NA,NA,NA,NA,NA,NA,NA,NA,NA,NA
+"21",21,21,"genus and species","humerus circ (mm)","femur circ (mm)","hum+fem circ (mm)","Packard est mass (kg)","Campione est mass linear (kg)","Campione est mass quadratic (kg)","ln Campione est mass quadratic (kg)","quadratic mass est low (kg)","quadratic mass est high (kg)","source"
+"22",22,22,"Baluchitherium/Paraceratherium/Indricotherium","592","543","1135","10403.278280198243","20723.285139110438","17230.81241977631","9.7544544798773742","12923.109314832232","21538.515524720387","Granger and Gregory (1936)"
+"23",23,23,"Shantungosaurus","404","680","1084","9434.9854473179748","18258.733221407922","15286.885098414139","9.6347505566788207","11465.163823810604","19108.606373017676","Benson et al. (2018)"

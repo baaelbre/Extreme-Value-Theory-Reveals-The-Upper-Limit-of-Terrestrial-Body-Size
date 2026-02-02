@@ -1,0 +1,339 @@
+library(ggplot2)
+library(dplyr)
+library(GGally)
+source('Plotfuncties.R')
+sal <- read.csv("Data/salinity.csv", 
+                stringsAsFactors = TRUE)
+
+########################################
+## Regressie met 1 categorische variabele
+########################################
+
+# vereiste dat vissen in 1 aquarium onafhankelijk zijn <-> 'cluster' effect (groeicorrelatie)
+# Misschien waterkwaiteit hidden variable
+# -> mixed effects model: fixed=saliniteit, random effect=gedeelde variatie in elk aquarium (door gemeensch groeiomstandigheden)
+
+### Opstellen van het lineair model
+sal.model <- lm(growth.rate ~ aquaria, data = sal)
+
+### Testen van assumpties
+op <- par(mfrow = c(1,3))
+plot(sal.model, which = 1:3)
+par(op)
+
+car::leveneTest(growth.rate ~ aquaria, data = sal)
+
+summary(sal.model)
+
+# contrasten veranderen
+contrasts(sal$aquaria)
+
+# p15 (6 Extra)
+levels(sal$aquaria)
+levels(sal$aquaria) <- c("Aq 15", "Aq 20", "Aq 25", "Aq 30")
+
+### Beantwoorden van de algemene onderzoeksvraag
+anova(sal.model)
+
+#################################################
+## Regressie met meerdere categorische variabelen
+#################################################
+
+hartritme <- read.csv("Data/hartritme2.csv", 
+                      stringsAsFactors = TRUE)
+
+
+### WOOCLAP ### (3.1)
+
+# 3.1.2
+simpelmodel <- lm(hartslag ~ activiteit,
+                  data = hartritme)
+
+# Is beta_act = 0?
+summary(simpelmodel) #ofvariantie analyse: anova(simpelmodel)
+
+# eigenlijk een exacte t test
+var.test(hartslag~activiteit, data=hartritme)
+t.test(hartslag~activiteit, data=hartritme, var.equal=TRUE)
+
+ggplot(hartritme, aes(x=activiteit,y=hartslag,
+                      fill = activiteit)) +
+  geom_boxplot() # veel variatie op beide groepen
+
+# CORRECTIE!!! 
+ggplot(hartritme, aes(x=groep,y=hartslag,
+                      fill = activiteit)) +
+  geom_boxplot()
+
+# kinderen zijn onrustiger als ze zitten :)
+
+### END ###
+
+hr.model.add <- lm(hartslag ~ groep + activiteit,
+                data = hartritme)
+
+### Testen van assumpties
+
+op <- par(mfrow = c(1,3))
+plot(hr.model.add, which = 1:3)
+par(op)
+
+# meerdere groepen testen (alle 6 interacties)
+car::leveneTest(hartslag~groep:activiteit, 
+                data = hartritme)
+
+### WOOCLAP ### (3.2)
+
+# 3.2.1
+# interpretatie elke coefficient-> altijd tov referentieniveau
+contrasts(hartritme$groep)
+contrasts(hartritme$activiteit)
+summary(hr.model.add)
+# onafhankelijk van de categorie van de andere variabelen
+
+# 3.2.2
+# beta_act=0
+# 3.2.3
+summary(hr.model.add)
+
+# 3.2.4 aan bord (interpretatie coefficienten)
+
+### Toevoegen van een interactieterm
+hr.model.int <- lm(hartslag~groep+activiteit+groep:activiteit, data=hartritme)
+anova(hr.model.int)
+hr.model.int <- lm(hartslag ~ activiteit*groep, 
+                   data = hartritme)
+
+anova(hr.model.int)
+anova(hr.model.add, hr.model.int)
+
+### WOOCLAP ### (3.3)
+
+# 3.3.1 kies de juiste eq.
+
+# 3.3.2 aan bord (interpretatie coefs)
+
+####################################################
+# Regressie met categorische en continue variabelen
+####################################################
+
+### Voorbeeld 1: Tomatenteelt (Studie 4.3 )
+
+tomaten <- read.csv("Data/tomaten.csv", 
+                    stringsAsFactors = TRUE)
+tom.mod.int <- lm(opbrengst ~ bemesting*soort,
+                  data = tomaten)
+
+### WOOCLAP ### (4.1)
+
+# 4.1.1
+op <- par(mfrow = c(1,3))
+plot(tom.mod.int, which = 1:3)
+par(op)
+residualplot(tom.mod.int)
+QQplot(tom.mod.int)
+
+# 4.1.2
+tom.mod.add <- lm(opbrengst ~ bemesting+soort, data=tomaten)
+
+anova(tom.mod.add, tom.mod.int)
+anova(tom.mod.int)
+
+# onvoldoende bewijs
+# 4.1.3
+# bespreek eerst gewoon interpretatie,
+summary(tom.mod.int)
+# dan degenen ZONDER bemesting (beta_0, beta_pr, beta_tr) -> bij GEMIDDELDE bemesting
+
+### Voorbeeld 2: Stikstofbemesting
+grond <- read.csv("Data/grond.csv")
+grond.mod.int <- lm(biomassa ~ stikstof*temperatuur, 
+                    data = grond)
+summary(grond.mod.int)
+### OEF (4.2) ###
+
+# 4.2.1
+# aan bord
+
+# 4.2.2
+op <- par(mfrow = c(1,3))
+plot(grond.mod.int, which = 1:3)
+par(op)
+
+# 4.2.3
+# H_0 opschrijven
+summary(grond.mod.int)
+
+# temperatuur beinvl effect van stikstofbemesting significant
+
+# 4.2.4
+# aan bord (tabel)
+
+### PAUZE ###
+##########
+# Casussen
+##########
+
+### Reactiesnelheid ###
+katalysesnelheid <- read.csv("Data/katalysesnelheid.csv")
+
+katalyse.reg.full <-lm(reactiesnelheid ~ ph*temperatuur,
+                       data = katalysesnelheid)
+# Voorwaarden
+op <- par(mfrow=c(1,3))
+plot(katalyse.reg.full, which = 1:3)
+par(op)
+
+# 5.1.1
+summary(katalyse.reg.full)
+
+# 5.1.2
+katalysesnelheid2 <- read.csv("Data/katalysesnelheid2.csv")
+katalyse.reg2 <- lm(reactiesnelheid ~ ph+temperatuur
+                    +concentratie,
+                    data = katalysesnelheid2)
+
+op <- par(mfrow = c(1,3))
+plot(katalyse.reg2, which = 1:3)
+par(op)
+
+summary(katalyse.reg2)$adj.r.squared
+summary(katalyse.reg.full)$adj.r.squared
+
+# 5.1.3 (NIET)
+
+# Model enkel pH
+ph.reg <- lm(reactiesnelheid ~ ph,
+             data = katalysesnelheid2)
+summary(ph.reg)
+
+# Model pH en concentratie
+ph.conc.reg <- lm(reactiesnelheid ~ concentratie +ph,
+                  data = katalysesnelheid2)
+summary(ph.conc.reg)
+# cf. dansen in rusten nt significant zonder correctieç
+
+### SKIP ###
+cor(katalysesnelheid2)
+anova(ph.conc.reg)
+
+ggplot(katalysesnelheid2, 
+       aes(x=concentratie, y =reactiesnelheid,
+           color = ph)) +
+  geom_point(size = 4)
+
+library(patchwork)
+modconc <- lm(reactiesnelheid ~ concentratie,
+              data = katalysesnelheid2)
+newdat <- data.frame(ph = katalysesnelheid2$ph,
+                     part = resid(modconc))
+
+p1 <- ggplot(newdat, aes(x=ph, y=part)) +
+  geom_point() +
+  geom_smooth(method = 'lm') +
+  geom_hline(color = 'red',
+             yintercept = mean(newdat$part)) +
+  labs(y = "Partiële residuen",
+       x = "pH",
+       title = "effect pH na correctie")
+p2 <- ggplot(katalysesnelheid2, 
+             aes(x=ph, y=reactiesnelheid)) +
+  geom_point() +
+  geom_smooth(method = 'lm') + 
+  geom_hline(color = 'red',
+             yintercept = mean(katalysesnelheid2$reactiesnelheid))
+
+p1 + p2
+
+### ###
+### Chocolade ###
+
+chocolade <- read.csv("./Data/chocolade.csv",
+                      stringsAsFactors = TRUE)
+levels(chocolade$koeltijd)
+levels(chocolade$temper)
+
+# 5.2.1
+model.int <- lm(smeltpunt ~ koeltijd*temper, data=chocolade)
+op <- par(mfrow=c(1,3))
+plot(model.int, which = 1:3)
+par(op)
+
+model.add <- lm(smeltpunt ~ koeltijd + temper, data=chocolade)
+anova(model.add, model.int)
+
+# 5.2.2
+# effect koeltijd op smeltpunt voor ELKE vorm van tempereren
+# steeds effect ten opzicht van referentiekoeltijd van 12 minuten
+contrasts(chocolade$temper)
+contrasts(chocolade$koeltijd)
+summary(model.int)
+
+### Energieconsumptie ###
+
+energie <- read.csv("Data/energie1.csv",
+                    stringsAsFactors = TRUE)
+contrasts(energie$gewicht)
+
+energie.lm <- lm(consumptie ~ gewicht, data=energie)
+op <- par(mfrow=c(1,3))
+plot(energie.lm, which = 1:3)
+# duidelijk probleem i heteroskedasticiteit (normaliteit lijkt op zich ok)
+par(op)
+
+# Ga voor klassieke 2 sample test!
+# Normaliteit
+ggplot(energie, aes(sample = consumptie)) +
+  stat_qq() +
+  stat_qq_line() +
+  facet_wrap(~ gewicht, scales = "free_y")
+# Gelijkheid van varianties
+ggplot(energie, aes(x=gewicht, y=consumptie)) + geom_boxplot()
+var.test(consumptie~gewicht, data=energie)
+
+# of levene...
+car::leveneTest(consumptie ~ gewicht, data=energie)
+
+# Welch test
+t.test(consumptie ~ gewicht, alternative="less", data=energie, var.equal=FALSE)
+# kan ook via kolommen
+
+### Antibioticaresistentie bij E. coli mutanten ### (NIET)
+ecoli <- read.csv("Data/resistance.csv")
+summary(ecoli)
+ecoli %>%
+  group_by(strain, antibiotic) %>%
+  summarise(mean = mean(mic),
+            min = min(mic),
+            max = max(mic),
+            med = median(mic))
+
+### Hypoxanthine ###
+
+hypo <- read.csv("./Data/hypoxanthine2.csv",
+                 stringsAsFactors = TRUE)
+
+hypo.reg <- lm(pmi ~ hx * temp, data = hypo)
+# Voorwaarden
+op <- par(mfrow=c(1,3))
+plot(hypo.reg, which = 1:3)
+par(op)
+
+hypo.reg.add <- lm(pmi ~ hx + temp, data = hypo)
+anova(hypo.reg.add, hypo.reg)
+
+### Cortisol ###
+
+cortisol <- read.csv("Data/cortisol.csv",
+                     stringsAsFactors = TRUE)
+
+ggplot(cortisol, aes(sample=conc)) + stat_qq() + stat_qq_line() + facet_wrap(~group)
+car::leveneTest(conc ~ group, data = cortisol)
+var.test(conc ~ group, data = cortisol)
+
+cort.reg <- lm(conc ~ group, data = cortisol)
+summary(cort.reg)
+op <- par(mfrow=c(1,3))
+plot(cort.reg, which = 1:3)
+# duidelijk probleem i heteroskedasticiteit en normaliteit
+par(op)

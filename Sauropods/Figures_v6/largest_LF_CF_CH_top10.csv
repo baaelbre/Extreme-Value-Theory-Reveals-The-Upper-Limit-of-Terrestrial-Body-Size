@@ -1,0 +1,31 @@
+trait,rank,value_raw,specimen
+LF,1,2350,Patagotitan mayorum
+LF,2,2310,Antarctosaurus giganteus
+LF,3,2280,Antarctosaurus wichmannianus
+LF,4,2219,Turiasaurus riodevensis
+LF,5,2090,Giraffatitan brancai
+LF,6,2030,Brachiosaurus altithorax
+LF,7,2000,Lusotitan atalaiensis 
+LF,8,1943,Atlasaurus imelakei
+LF,9,1910,Dreadnoughtus schrani
+LF,10,1860,Traukutitan eocaudata
+CF,1,1110,Argentinosaurus huinculensis
+CF,2,940,Brachiosaurus altithorax
+CF,3,935,Patagotitan mayorum
+CF,4,933,Australotitan cooperensis
+CF,5,910,Dreadnoughtus schrani
+CF,6,905,Ruyangosaurus_giganteus
+CF,7,873,Antarctosaurus sp.
+CF,8,865.3,Sauroposeidon proteles 
+CF,9,845,Apatosaurus louisae
+CF,10,810,Elaltitan lilloi
+CH,1,930,Brachiosaurus altithorax
+CH,2,785,Dreadnoughtus schrani
+CH,3,770,Notocolossus gonzalezparejasi
+CH,4,759,Australotitan cooperensis
+CH,5,755,Turiasaurus riodevensis
+CH,6,720,Paralititan stromeri
+CH,7,680,Bustingorrytitan shiva
+CH,8,661,Alamosaurus sanjuanensis
+CH,9,654,Giraffatitan brancai
+CH,10,643,Futalognkosaurus dukei
