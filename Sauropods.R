@@ -17,9 +17,8 @@ set.seed(42)
 # ---------------------------
 # USER OPTIONS
 # ---------------------------
-REMOVE_ARGENTINOSAURUS <- FALSE     # TRUE = exclude largest from training
-q_u <- NA_real_                    # set to 0.95 to use a quantile threshold; leave NA to use u_fixed_kg
-u_fixed_kg <- 34000                # default sauropod threshold in kg
+REMOVE_LARGEST <- FALSE     # TRUE = exclude largest from training
+u <- 34000                  # default sauropod threshold in kg
 ci_level <- 0.95                   # one-sided UCB level for endpoint
 QQ_LINE_QUANTILES <- c(0.05, 0.95) # anchor line through these QQ-quantiles (of the QQ cloud)
 
@@ -48,8 +47,8 @@ df_mass <- df_raw |>
 # Analysis scale (kg)
 y_all <- df_mass$mass_kg
 
-# Optional: remove the single largest training point by value
-if (REMOVE_ARGENTINOSAURUS) {
+# Remove the single largest training point by value (optional)
+if (REMOVE_LARGEST) {
   idx_max <- which.max(y_all)
   cat("\nRemoving largest specimen from training: mass_kg =",
       signif(y_all[idx_max], 7), "kg\n")
@@ -76,13 +75,8 @@ tcplot(y, u.range = u_range, nt = 30, conf = ci_level, which = 2, ask = FALSE)
 # ---------------------------
 # Choose threshold u and fit tail model (POT) — in kg
 # ---------------------------
-if (is.finite(q_u)) {
-  u <- as.numeric(quantile(y, probs = q_u, na.rm = TRUE))
-  cat("\nChosen threshold: q_u =", q_u, " -> u =", signif(u, 7), "kg\n")
-} else {
-  u <- u_fixed_kg
-  cat("\nChosen threshold (fixed): u =", signif(u, 7), "kg\n")
-}
+cat("\nChosen threshold (fixed): u =", signif(u, 7), "kg\n")
+
 
 fit <- fitgpd(y, threshold = u, est = "mle")
 print(fit)
@@ -102,24 +96,14 @@ cat("  xi_hat    =", signif(xi_hat, 7), "\n")
 cat("  exceedances n_u =", n_u, " (p_u =", signif(p_u, 6), ")\n")
 
 # ---------------------------
-# Endpoint estimate + delta-method SE (analysis in kg)
+# Endpoint estimate + delta-method SE
 # ---------------------------
-ystar_hat <- NA_real_
-se_ystar  <- NA_real_
-ystar_ucb <- NA_real_
 
 ystar_hat <- u - sigma_hat / xi_hat
-
 V <- fit$var.cov
-if (is.null(V) || any(!is.finite(V))) stop("fit$var.cov missing/not finite.")
-
-if (!is.null(rownames(V)) && all(c("scale", "shape") %in% rownames(V))) {
-  V <- V[c("scale", "shape"), c("scale", "shape")]
-}
 
 grad <- c(-1 / xi_hat, sigma_hat / (xi_hat^2))
 var_ystar <- as.numeric(t(grad) %*% V %*% grad)
-if (!is.finite(var_ystar) || var_ystar <= 0) stop("Delta variance invalid.")
 
 se_ystar  <- sqrt(var_ystar)
 ystar_ucb <- ystar_hat + qnorm(ci_level) * se_ystar
@@ -179,7 +163,7 @@ y_arg_t   <- u/1000
 ystar_t   <- if (is.finite(ystar_hat)) kg_to_t(ystar_hat) else NA_real_
 
 # ============================================================
-# FIG 4 — Distribution (tons)
+# FIG 4 — Distribution 
 # ============================================================
 df_y <- tibble(y_t = y_t)
 
@@ -198,8 +182,7 @@ ggsave(file.path(FIG_DIR, "Fig4_sauropod_mass_distribution_tons.png"),
        p4, dpi = 600, width = 6.6, height = 4.6, units = "in")
 
 # ============================================================
-# FIG 3c — Tail survival P(Y>y) (unconditional) — PLOTS IN TONS
-#   Probabilities computed on kg scale, but x-axis is tons.
+# FIG 3c — Tail survival P(Y>y) 
 # ============================================================
 y_sorted <- sort(y)                      # kg
 k_all <- seq_along(y_sorted)
@@ -241,7 +224,7 @@ ggsave(file.path(FIG_DIR, "Fig3c.png"),
        p3c, dpi = 600, width = 6.6, height = 4.6, units = "in")
 
 # ============================================================
-# FIG 3d — QQ plot on ORIGINAL SCALE (tons) for points y>u
+# FIG 3d — QQ plot for points y>u
 #   x-axis: theoretical quantiles of Y (NOT exceedances), i.e. u + qgpd(...)
 #   y-axis: empirical tail observations Y (NOT exceedances)
 #   Reference line anchored at quantiles of the QQ cloud
