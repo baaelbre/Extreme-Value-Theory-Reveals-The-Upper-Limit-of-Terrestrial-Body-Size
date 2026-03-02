@@ -1,38 +1,36 @@
 # ============================================================
-# Bivariate EVT with censored likelihood & logistic dependence
-# (CF, CH) — Sauropod circumferences
-# Full log-likelihood: censored bivariate POT (bvpot.c:nllbvclog)
-# + univariate GP contributions for missing partners (evd::dgpd)
-# Parametric bootstrap for (sigma1, sigma2, xi, y1*, y2*)
-# + univariate KS bootstrap + Wald tests for xi<0
+# Title: Extreme Value Theory Reveals the Upper Limit of
+#        Terrestrial Body Size: Sauropods (CF, CH)
+# Author: Bastiaan A. Van Velthoven
 # ============================================================
 
 suppressPackageStartupMessages({
-  library(readxl)
-  library(dplyr)
-  library(tidyr)
-  library(purrr)
-  library(ggplot2)
-  library(evd)        # fpot, pgpd, dgpd, qgpd, sep.bvdata
-  library(scales)
-  library(glue)
-  library(forcats)
-  library(grid)
-  library(MASS)       # for ginv fallback if Hessian singular
-  library(copula)     # Gumbel / logistic EV copula
+  library(readxl)     # read Excel
+  library(dplyr)      # data manipulation
+  library(tidyverse)  # tidyr + purrr + ggplot2 + tibble + stringr + forcats
+  library(ggplot2)    # plotting
+  library(evd)        # EVT (fpot, pgpd, qgpd, dgpd, sep.bvdata)
+  library(scales)     # percent labels
+  library(glue)       # glue strings
+  library(forcats)    # factor ordering
+  library(grid)       # unit()
+  library(MASS)       # kde2d (+ ginv fallback if ever needed)
+  library(copula)     # Gumbel (logistic EV) copula
 })
 
 set.seed(42)
 
 # ------------------------------------------------------------
-# 0. Load compiled C code (bvpot.c → bvpot.so / bvpot.dll)
+# Load compiled C code (bvpot.c -> bvpot.dll/.so contains nllbvclog)
 # ------------------------------------------------------------
-# system("R CMD SHLIB bvpot.c")
+citation("evd")
+# system("R CMD SHLIB bvpot.c")  # compile if needed
+
 if (!is.loaded("nllbvclog")) {
-  ## Adjust path / extension as needed:
-  ## dyn.load("path/to/bvpot.so") or "bvpot.dll" on Windows
+  # Adjust extension/path as needed (bvpot.so on Linux/macOS)
   dyn.load("bvpot.dll")
 }
+stopifnot(is.loaded("nllbvclog"))
 
 # ---------------------------
 # Directories & theming
@@ -58,25 +56,25 @@ theme_science <- theme_minimal(base_family = "Arial", base_size = 12) +
 # ---------------------------
 # Global settings
 # ---------------------------
-ci_level      <- 0.90
-u_scan_lo_q   <- 0.20
-u_scan_hi_q   <- 0.99
-u_scan_n      <- 50
-min_ex_mrl    <- 5
-min_ex_fit    <- 10
+ci_level <- 0.90
 
-trait_names   <- c("CF", "CH")
-thresh_q_opt  <- c(CF = 0.68, CH = 0.6)  # anchor quantiles (log scale)
-# we take the CH threshold somewhat lower (at 60% !) because the shape parameters
-# would differ too much (and we have very strong allometric scaling; R^2 fem circ~hum circ 0.9635)
-# Bootstrap settings (bivariate endpoint & KS)
-B_boot <- 5000L   # parametric bivariate bootstrap replicates
-B_KS   <- 100L     # parametric KS bootstrap per margin
+u_lo <- 0.20
+u_hi <- 0.99
+u_n  <- 50
+
+min_ex_mrl <- 5
+min_ex     <- 10  
+
+trait_names <- c("CF", "CH")
+
+q_opt <- c(CF = 0.68, CH = 0.60) # optimal thresholds (based on parameter stability)
+
+B_boot <- 5000L
+B_KS   <- 100L
 
 # ============================================================
-# 1. Ingest and basic cleaning
+# 1. Read the data
 # ============================================================
-
 DATA_XLSX <- "Data/sauropod_measurements_demic.xlsx"
 df_raw    <- read_excel(DATA_XLSX)
 
@@ -94,7 +92,6 @@ df <- df_raw %>%
 # ============================================================
 # 2. Completeness diagnostics
 # ============================================================
-
 compl_tbl <- trait_names %>%
   set_names() %>%
   map_df(function(tr) {
@@ -106,6 +103,7 @@ compl_tbl <- trait_names %>%
       completeness = mean(!is.na(v))
     )
   })
+print(compl_tbl)
 
 p_compl <- compl_tbl %>%
   mutate(trait = fct_inorder(trait)) %>%
@@ -114,33 +112,25 @@ p_compl <- compl_tbl %>%
   geom_text(aes(label = percent(completeness, accuracy = 0.1)),
             vjust = -0.2, size = 4) +
   scale_y_continuous(labels = percent_format(accuracy = 1), limits = c(0, 1.10)) +
-  labs(title = "Completeness (CF, CH)", x = NULL, y = "Completeness") +
+  labs(y = "Completeness") +
   theme_science
 
 ggsave(file.path(FIG_DIR, "completeness_CF_CH.png"), p_compl,
        dpi = 600, w = 6.0, h = 4.2, units = "in")
+p_compl
 
 # ============================================================
 # 3. Log-transform and split patterns (complete / CF-only / CH-only)
 # ============================================================
-
 df_log <- df %>%
   mutate(
     log_CF = ifelse(is.finite(CF) & CF > 0, log(CF), NA_real_),
     log_CH = ifelse(is.finite(CH) & CH > 0, log(CH), NA_real_)
   )
 
-# Complete cases: both CF and CH observed
-df_complete <- df_log %>%
-  filter(!is.na(log_CF), !is.na(log_CH))
-
-# CF only
-df_cf_only <- df_log %>%
-  filter(!is.na(log_CF), is.na(log_CH))
-
-# CH only
-df_ch_only <- df_log %>%
-  filter(is.na(log_CF), !is.na(log_CH))
+df_complete <- df_log %>% filter(!is.na(log_CF), !is.na(log_CH))
+df_cf_only  <- df_log %>% filter(!is.na(log_CF),  is.na(log_CH))
+df_ch_only  <- df_log %>% filter( is.na(log_CF), !is.na(log_CH))
 
 cat("\nRow counts by observation pattern:\n")
 cat("  complete (CF & CH) :", nrow(df_complete), "\n")
@@ -148,26 +138,30 @@ cat("  CF only            :", nrow(df_cf_only), "\n")
 cat("  CH only            :", nrow(df_ch_only), "\n")
 
 # ============================================================
-# 4. Thresholds on log scale (per trait, using *all* non-missing)
+# 4. Thresholds per trait
 # ============================================================
-
 u0_by_trait <- setNames(numeric(length(trait_names)), trait_names)
 for (tr in trait_names) {
   v_log <- df_log[[paste0("log_", tr)]]
-  u0_by_trait[tr] <- as.numeric(quantile(v_log, thresh_q_opt[tr], na.rm = TRUE))
+  u0_by_trait[tr] <- as.numeric(quantile(v_log, q_opt[tr], na.rm = TRUE))
 }
-print(u0_by_trait)
+print(u0_by_trait)       # thresholds on log scale
 print(exp(u0_by_trait))  # thresholds on original scale (mm)
 
+u1 <- u0_by_trait["CF"]
+u2 <- u0_by_trait["CH"]
+u_vec <- c(u1, u2)
 # ============================================================
 # 4B Pairwise tail regimes & missing/observed/exceed/censored
 #     (CF, CH) — quadrant plot on log-scale
 #     Legend uses tuples (E1,E2,O1,O2)
 # ============================================================
 
+# Use the same thresholds as elsewhere
 u1 <- u0_by_trait["CF"]
 u2 <- u0_by_trait["CH"]
 
+# Precompute log vectors
 x1 <- df_log$log_CF  # trait 1 = CF
 x2 <- df_log$log_CH  # trait 2 = CH
 
@@ -347,11 +341,11 @@ make_pair_plot <- function(t1 = "CF", t2 = "CH") {
 # Create the plot
 make_pair_plot("CF", "CH")
 
-# ============================================================
-# 5. Helper functions for univariate diagnostics (evd only)
-# ============================================================
 
-make_thresholds <- function(y, q_from = u_scan_lo_q, q_to = u_scan_hi_q, n = u_scan_n) {
+# ============================================================
+# Helper functions for univariate diagnostics
+# ============================================================
+make_thresholds <- function(y, q_from = u_lo, q_to = u_hi, n = u_n) {
   rng <- quantile(y, c(q_from, q_to), na.rm = TRUE)
   seq(rng[1], rng[2], length.out = n)
 }
@@ -369,6 +363,7 @@ fit_gpd_at_u <- function(y, u) {
   )
 }
 
+# adjusted (threshold-independent) scale: sigma_u - xi(u-u0)
 adj_scale_fun <- function(scale, xi, u, u0) {
   scale - xi * (u - u0)
 }
@@ -400,7 +395,7 @@ diagnostic_plots <- function(y, u, sigma_hat, xi_hat, label) {
     geom_point(color = "steelblue") +
     geom_abline(slope = 1, intercept = 0,
                 linetype = "dashed", color = "red") +
-
+    labs(title = glue("Q–Q: {label}")) +
     theme_science
   
   F_theo <- if (abs(xi_hat) > 1e-10) {
@@ -416,46 +411,42 @@ diagnostic_plots <- function(y, u, sigma_hat, xi_hat, label) {
     geom_point(color = "darkgreen") +
     geom_abline(slope = 1, intercept = 0,
                 linetype = "dashed", color = "red") +
+    labs(title = glue("P–P: {label}")) +
     theme_science
   
-  # PIT using evd::pgpd (exc >= 0, loc = 0)
+  # PIT histogram (uniformity)
   F_hat <- evd::pgpd(exc, loc = 0, scale = sigma_hat, shape = xi_hat)
-  pks <- ggplot(data.frame(F_hat = F_hat), aes(F_hat)) +
+  p_pit <- ggplot(data.frame(F_hat = F_hat), aes(F_hat)) +
     geom_histogram(aes(y = ..density..), bins = 20,
                    fill = "skyblue", color = "black", alpha = 0.7) +
     geom_hline(yintercept = 1, color = "red", linetype = "dashed") +
     labs(title = glue("Uniformity (PIT): {label}")) +
     theme_science
   
-  list(pqq = pqq, ppp = ppp, pks = pks)
+  list(pqq = pqq, ppp = ppp, p_pit = p_pit)
 }
 
 # ------------------------------------------------------------
-# KS goodness-of-fit via parametric bootstrap (univariate GPD)
+# KS goodness-of-fit via parametric bootstrap (univariate!)
 # ------------------------------------------------------------
-ks_gpd_boot_from_fit <- function(y, u, scale_hat, shape_hat,
-                                 B = 1000L, seed = NULL) {
+ks_boot <- function(y, u, scale_hat, shape_hat, B = 1000L, seed = NULL) {
   if (!is.null(seed)) set.seed(seed)
   
-  # Exceedances over u
   y_exceed <- y[y > u]
   ex       <- y_exceed - u
   n_ex     <- length(ex)
   if (n_ex < 20L) {
-    warning("Not enough exceedances for KS bootstrap (n_ex < 20); returning NA.")
+    warning("Not enough exceedances for KS bootstrap (n_ex < 20) -> NA")
     return(list(D = NA_real_, p = NA_real_, D_boot = numeric(0L), n_exceed = n_ex))
   }
   
-  # Observed KS statistic under fitted GPD
   Fn_ex      <- ecdf(ex)
   ex_sorted  <- sort(ex)
   Fgpd_obs   <- evd::pgpd(ex_sorted, loc = 0, scale = scale_hat, shape = shape_hat)
   Fn_vals    <- Fn_ex(ex_sorted)
   D_obs      <- max(abs(Fn_vals - Fgpd_obs))
   
-  # Parametric bootstrap under fitted GPD with refitting
   D_boot <- numeric(B)
-  
   for (b in seq_len(B)) {
     ex_b <- evd::rgpd(n_ex, loc = 0, scale = scale_hat, shape = shape_hat)
     y_b  <- u + ex_b
@@ -483,38 +474,35 @@ ks_gpd_boot_from_fit <- function(y, u, scale_hat, shape_hat,
   }
   
   p_boot <- mean(D_boot >= D_obs)
-  
   list(D = D_obs, p = p_boot, D_boot = D_boot, n_exceed = n_ex)
 }
 
 # ------------------------------------------------------------
-# Trait-wise diagnostics, KS, and Wald p-values
+# Diagnostics, KS, and Wald p-values, per trait.
 # ------------------------------------------------------------
-run_trait_diag <- function(tr_key) {
+run_trait <- function(tr_key) {
   v_raw <- df[[tr_key]] |> suppressWarnings(as.numeric())
   y     <- log(v_raw[is.finite(v_raw) & v_raw > 0])
   ylab  <- glue("log {tr_key}")
   stopifnot(length(y) >= 40)
   
-  q_anchor <- thresh_q_opt[tr_key]
+  q_anchor <- q_opt[tr_key]
   u_seq    <- make_thresholds(y)
   u0       <- quantile(y, q_anchor, na.rm = TRUE) |> as.numeric()
   
-  # Mean residual life
+  # MRL plot (KEEP)
   mrl_vals <- mrl_data(y, u_seq, min_ex = min_ex_mrl)
   p_mrl <- ggplot(data.frame(u = u_seq, mrl = mrl_vals), aes(u, mrl)) +
     geom_line() + geom_point() +
     geom_vline(xintercept = u0, linetype = "dashed", color = "red") +
-    labs(
-      title = glue("MRL plot ({ylab})"),
-      x     = glue("Threshold ({ylab})"),
-      y     = "Mean excess"
-    ) +
+    labs(title = glue("MRL plot ({ylab})"),
+         x = glue("Threshold ({ylab})"),
+         y = "Mean excess") +
     theme_science
   ggsave(file.path(FIG_DIR, glue("{tr_key}_log_mrl.png")),
          p_mrl, dpi = 600, w = 6.2, h = 4.2, units = "in")
   
-  # GPD fit at anchor threshold u0
+  # GPD fit at u0
   fit0  <- fit_gpd_at_u(y, u0)
   xi0   <- fit0$shape
   sc0   <- fit0$scale
@@ -526,19 +514,10 @@ run_trait_diag <- function(tr_key) {
   z_wald <- xi0 / xi_se
   p_wald <- pnorm(z_wald)  # H1: xi < 0
   
-  # KS goodness-of-fit via parametric bootstrap
-  seed_ks <- switch(tr_key,
-                    "CF" = 111L,
-                    "CH" = 222L,
-                    333L)
-  ks_res <- ks_gpd_boot_from_fit(
-    y          = y,
-    u          = u0,
-    scale_hat  = sc0,
-    shape_hat  = xi0,
-    B          = B_KS,
-    seed       = seed_ks
-  )
+  # KS GOF (KEEP)
+  seed_ks <- switch(tr_key, "CF" = 111L, "CH" = 222L, 333L)
+  ks_res <- ks_boot(y = y, u = u0, scale_hat = sc0, shape_hat = xi0,
+                    B = B_KS, seed = seed_ks)
   
   zcrit <- qnorm(1 - (1 - ci_level) / 2)
   
@@ -555,7 +534,7 @@ run_trait_diag <- function(tr_key) {
   for (i in seq_along(u_seq)) {
     u <- u_seq[i]
     ex <- y[y > u] - u
-    if (length(ex) < min_ex_fit) next
+    if (length(ex) < min_ex) next
     
     out <- try(fit_gpd_at_u(y, u), silent = TRUE)
     if (inherits(out, "try-error")) next
@@ -580,9 +559,7 @@ run_trait_diag <- function(tr_key) {
                   width = 0.03, color = "blue") +
     geom_vline(xintercept = u0, color = "red", linetype = "dashed") +
     geom_hline(yintercept = xi0, color = "red", linetype = "dashed") +
-    labs(
-      x = glue("Threshold ({ylab})"),
-      y = "Shape (xi)") +
+    labs(x = glue("Threshold ({ylab})"), y = "Shape (xi)") +
     theme_science
   
   p_adj <- ggplot(df_scan, aes(u, adj)) +
@@ -591,9 +568,7 @@ run_trait_diag <- function(tr_key) {
                   width = 0.03, color = "blue") +
     geom_vline(xintercept = u0, color = "red", linetype = "dashed") +
     geom_hline(yintercept = sc0, color = "red", linetype = "dashed") +
-    labs(
-      x = glue("Threshold ({ylab})"),
-      y = "Adjusted scale") +
+    labs(x = glue("Threshold ({ylab})"), y = "Adjusted scale") +
     theme_science
   
   ggsave(file.path(FIG_DIR, glue("{tr_key}_log_shape_stability.png")),
@@ -607,7 +582,7 @@ run_trait_diag <- function(tr_key) {
   ggsave(file.path(FIG_DIR, glue("{tr_key}_log_pp.png")),
          di$ppp, dpi = 600, w = 6.2, h = 4.2, units = "in")
   ggsave(file.path(FIG_DIR, glue("{tr_key}_log_pit_uniformity.png")),
-         di$pks, dpi = 600, w = 6.2, h = 4.2, units = "in")
+         di$p_pit, dpi = 600, w = 6.2, h = 4.2, units = "in")
   
   cat(glue("\n{tr_key}: Wald test xi<0 at u0={round(u0,3)}: xî={round(xi0,3)}, se={round(xi_se,3)}, z={round(z_wald,3)}, p={signif(p_wald,3)}"))
   cat(glue("\n{tr_key}: KS bootstrap: D={round(ks_res$D,3)}, p_boot={signif(ks_res$p,3)}, n_exceed={ks_res$n_exceed}\n"))
@@ -627,21 +602,16 @@ run_trait_diag <- function(tr_key) {
   )
 }
 
-diag_CF <- run_trait_diag("CF")
-diag_CH <- run_trait_diag("CH")
+diag_CF <- run_trait("CF")
+diag_CH <- run_trait("CH")
 marg_diag_tbl <- bind_rows(diag_CF, diag_CH)
 print(marg_diag_tbl)
 
 # ============================================================
 # 6. Univariate POT fits using all non-missing data per margin
 # ============================================================
-
 y_CF_all <- df_log$log_CF[!is.na(df_log$log_CF)]
 y_CH_all <- df_log$log_CH[!is.na(df_log$log_CH)]
-
-u1 <- u0_by_trait["CF"]
-u2 <- u0_by_trait["CH"]
-
 
 fit_CF_uni <- evd::fpot(y_CF_all, threshold = u1, model = "gpd")
 fit_CH_uni <- evd::fpot(y_CH_all, threshold = u2, model = "gpd")
@@ -660,18 +630,12 @@ cat("  CF: scale =", sigma1_hat_uni, " shape =", xi1_hat_uni, "\n")
 cat("  CH: scale =", sigma2_hat_uni, " shape =", xi2_hat_uni, "\n")
 
 # ============================================================
-# 6b. Empirical near-endpoint *unconditional* survival curves
-#      using empirical maxima as pseudo-endpoints
-#      Ŝ(t) = P(Y > y_max - t)
+# 6B. Empirical near-endpoint unconditional survival curves
 # ============================================================
-
-# Helper: build Ŝ(t) = P(Y > y_max - t) for one trait (on log-scale)
 make_endpoint_sf_curve_uncond <- function(y, u, name) {
-  # all log-data (non-missing)
   y_all <- y[is.finite(y)]
   n_all <- length(y_all)
   
-  # tail data above threshold
   y_tail <- y_all[y_all > u]
   y_tail <- sort(y_tail)
   
@@ -681,41 +645,21 @@ make_endpoint_sf_curve_uncond <- function(y, u, name) {
     return(tibble())
   }
   
-  # pseudo-endpoint = empirical max within tail
   y_max <- max(y_tail)
-  
-  # indices 1..(n_tail-1) so Ŝ never equals 0
-  k      <- seq_len(n_tail - 1L)
-  t_hat  <- y_max - y_tail[k]          # distance to empirical max (log-scale)
-  
-  # conditional survival given Y > u:
-  #   S_cond(t) = P(Y > y_tail[k] | Y > u) = (n_tail - k)/n_tail
+  k     <- seq_len(n_tail - 1L)
+  t_hat <- y_max - y_tail[k]
   S_cond <- (n_tail - k) / n_tail
-  
-  # tail fraction P(Y > u) ≈ n_tail / n_all
   p_tail <- n_tail / n_all
-  
-  # unconditional survival:
-  #   S_uncond(t) = P(Y > u) * S_cond(t) ≈ (n_tail / n_all) * (n_tail - k)/n_tail
   S_uncond <- p_tail * S_cond
   
-  tibble(
-    t_hat = t_hat,
-    S_hat = S_uncond,
-    Trait = name
-  )
+  tibble(t_hat = t_hat, S_hat = S_uncond, Trait = name)
 }
 
-# Build curves for log(CF) and log(CH)
 sf_CF <- make_endpoint_sf_curve_uncond(y_CF_all, u1, "CF")
 sf_CH <- make_endpoint_sf_curve_uncond(y_CH_all, u2, "CH")
-
 sf_all <- bind_rows(sf_CF, sf_CH)
 
-trait_cols <- c(
-  "CF" = "#377eb8",  # blue
-  "CH" = "#1b9e77"   # green
-)
+trait_cols <- c("CF" = "#377eb8", "CH" = "#1b9e77")
 
 p_sf_endpoint <- ggplot(sf_all, aes(x = t_hat, y = S_hat, colour = Trait)) +
   geom_point(size = 2, alpha = 0.9) +
@@ -728,34 +672,23 @@ p_sf_endpoint <- ggplot(sf_all, aes(x = t_hat, y = S_hat, colour = Trait)) +
   ) +
   theme_science
 
-p_sf_endpoint
-
 ggsave(
   file.path(FIG_DIR, "CF_CH_empirical_survival_endpoint_uncond.png"),
   p_sf_endpoint,
-  dpi   = 600,
-  w     = 6.0,
-  h     = 4.5,
-  units = "in"
+  dpi = 600, w = 6.0, h = 4.5, units = "in"
 )
+p_sf_endpoint
 
 # ============================================================
 # 7. Bivariate POT with censored likelihood (complete cases)
 #    + univariate contributions from missings (E1M2, M1E2)
 # ============================================================
-
-# 7.1 Complete-case matrix for censored bivariate logistic POT
 X_biv <- df_complete %>%
-  transmute(
-    log_CF = log_CF,
-    log_CH = log_CH
-  ) %>%
+  transmute(log_CF = log_CF, log_CH = log_CH) %>%
   as.matrix()
 
 n_biv <- nrow(X_biv)
 cat("\nBivariate sample size (complete cases CF & CH):", n_biv, "\n")
-
-u_vec <- c(u1, u2)
 
 quad_tab <- table(
   CF_exceed = X_biv[, 1] > u1,
@@ -764,9 +697,7 @@ quad_tab <- table(
 cat("\nQuadrant table (on log scale, complete cases only):\n")
 print(quad_tab)
 
-# 7.2 Missing patterns that contribute to the tail likelihood
-
-# Only cases with an exceedance and the other margin truly missing:
+# Missing-partner exceedances
 y1_E_M2 <- df_cf_only$log_CF[df_cf_only$log_CF > u1]  # CF exceeds, CH missing
 y2_M1_E <- df_ch_only$log_CH[df_ch_only$log_CH > u2]  # CH exceeds, CF missing
 
@@ -774,12 +705,10 @@ cat("\nCounts of missing-partner exceedances:\n")
 cat("  CF exceed, CH missing (E1M2):", length(y1_E_M2), "\n")
 cat("  CH exceed, CF missing (M1E2):", length(y2_M1_E), "\n")
 
-# ---------------------------
-# 7.3 Censored logistic log-likelihood using nllbvclog from bvpot.c
-# ---------------------------
-
-make_ll_cens_logistic_bvpot <- function(x, u, cshape = FALSE, cscale = FALSE) {
-  # Use sep.bvdata from evd to build (x1, x2, nn, n, thid, lambda, ...)
+# ------------------------------------------------------------
+# 7.3 Censored logistic log-likelihood via nllbvclog (bvpot.c)
+# ------------------------------------------------------------
+make_ll_biv <- function(x, u, cshape = FALSE, cscale = FALSE) {
   sep.bvdata <- getFromNamespace("sep.bvdata", "evd")
   spx        <- sep.bvdata(x = x, method = "cpot", u = u)
   
@@ -793,7 +722,6 @@ make_ll_cens_logistic_bvpot <- function(x, u, cshape = FALSE, cscale = FALSE) {
     if (isTRUE(cshape)) shape2 <- shape1
     if (isTRUE(cscale)) scale2 <- scale1
     
-    # Call compiled C routine: nllbvclog(...)
     out <- .C("nllbvclog",
               data1  = as.double(spx$x1),
               data2  = as.double(spx$x2),
@@ -809,73 +737,47 @@ make_ll_cens_logistic_bvpot <- function(x, u, cshape = FALSE, cscale = FALSE) {
               dns    = as.double(0)
     )
     
-    # C routine returns the *negative* log-likelihood in dns
+    # C returns negative log-likelihood in dns → we negate to get loglik
     -out$dns
   }
 }
 
-ll_cens_log <- make_ll_cens_logistic_bvpot(
+ll_cens_log <- make_ll_biv(
   x      = X_biv,
   u      = u_vec,
   cshape = FALSE,
   cscale = FALSE
 )
 
-# ---------------------------
-# 7.4 Univariate GP contributions from missings (evd::dgpd)
-# ---------------------------
-
+# ------------------------------------------------------------
+# 7.4 Univariate GP contributions from missings
+# ------------------------------------------------------------
 lgp_exceed_evd <- function(y, u, scale, shape) {
   ex <- y - u
   evd::dgpd(ex, loc = 0, scale = scale, shape = shape, log = TRUE)
 }
 
-make_ll_missing_uni <- function(y1_E_M2, y2_M1_E, u1, u2) {
+make_ll_uni <- function(y1_E_M2, y2_M1_E, u1, u2) {
   function(theta) {
     scale1 <- theta["scale1"]
     shape1 <- theta["shape1"]
     scale2 <- theta["scale2"]
     shape2 <- theta["shape2"]
     
-    ll1 <- if (length(y1_E_M2)) {
-      sum(lgp_exceed_evd(y1_E_M2, u1, scale1, shape1))
-    } else 0
-    
-    ll2 <- if (length(y2_M1_E)) {
-      sum(lgp_exceed_evd(y2_M1_E, u2, scale2, shape2))
-    } else 0
-    
+    ll1 <- if (length(y1_E_M2)) sum(lgp_exceed_evd(y1_E_M2, u1, scale1, shape1)) else 0
+    ll2 <- if (length(y2_M1_E)) sum(lgp_exceed_evd(y2_M1_E, u2, scale2, shape2)) else 0
     ll1 + ll2
   }
 }
+ll_missing <- make_ll_uni(y1_E_M2, y2_M1_E, u1, u2)
 
-ll_missing <- make_ll_missing_uni(y1_E_M2, y2_M1_E, u1, u2)
+loglik_full <- function(theta) ll_cens_log(theta) + ll_missing(theta)
 
-# Full log-likelihood: censored bivariate POT + univariate missings
-loglik_full <- function(theta) {
-  ll_cens_log(theta) + ll_missing(theta)
-}
-
-# Wrapper for optim
 negloglik_full <- function(p, common_shape = FALSE) {
   if (!common_shape) {
-    # Free shapes: theta = (scale1, shape1, scale2, shape2, dep)
-    theta <- c(
-      scale1 = p[1],
-      shape1 = p[2],
-      scale2 = p[3],
-      shape2 = p[4],
-      dep    = p[5]
-    )
+    theta <- c(scale1 = p[1], shape1 = p[2], scale2 = p[3], shape2 = p[4], dep = p[5])
   } else {
-    # H0: xi1 = xi2 = xi
-    theta <- c(
-      scale1 = p[1],
-      shape1 = p[2],  # xi
-      scale2 = p[3],
-      shape2 = p[2],  # same xi
-      dep    = p[4]
-    )
+    theta <- c(scale1 = p[1], shape1 = p[2], scale2 = p[3], shape2 = p[2], dep = p[4])
   }
   -loglik_full(theta)
 }
@@ -883,8 +785,7 @@ negloglik_full <- function(p, common_shape = FALSE) {
 # ============================================================
 # 8. Maximum likelihood: free shapes vs common shape
 # ============================================================
-
-# 8.1 Free shapes (H1)
+# Free shapes (KEEP start dep=0.1)
 start_free <- c(
   scale1 = sigma1_hat_uni,
   shape1 = xi1_hat_uni,
@@ -894,22 +795,21 @@ start_free <- c(
 )
 
 opt_free <- optim(
-  par     = unname(start_free),
-  fn      = negloglik_full,
+  par          = unname(start_free),
+  fn           = negloglik_full,
   common_shape = FALSE,
-  method  = "Nelder-Mead"
+  method       = "Nelder-Mead"
 )
 
 par_free <- opt_free$par
 names(par_free) <- names(start_free)
-
 ell_hat_free <- -opt_free$value
 
 cat("\nBivariate MLEs (full llh, free shapes):\n")
 print(par_free)
 cat("Maximized log-likelihood (free) =", ell_hat_free, "\n")
 
-# 8.2 Common tail shape (H0: xi_CF = xi_CH = xi)
+# Common tail (H0: xi1 = xi2)
 start_eq <- c(
   scale1 = sigma1_hat_uni,
   xi     = mean(c(xi1_hat_uni, xi2_hat_uni)),
@@ -918,18 +818,16 @@ start_eq <- c(
 )
 
 opt_eq <- optim(
-  par     = unname(start_eq),
-  fn      = negloglik_full,
+  par          = unname(start_eq),
+  fn           = negloglik_full,
   common_shape = TRUE,
-  method  = "Nelder-Mead"
+  method       = "Nelder-Mead"
 )
 
 par_eq_phi <- opt_eq$par
 names(par_eq_phi) <- names(start_eq)
-
 ell_hat_eq <- -opt_eq$value
 
-# Reconstruct full θ under H0
 par_eq <- c(
   scale1 = par_eq_phi["scale1"],
   shape1 = par_eq_phi["xi"],
@@ -942,22 +840,17 @@ cat("\nCommon tail shape MLEs (full llh, H0: xi_CF = xi_CH):\n")
 print(par_eq)
 cat("Maximized log-likelihood (H0) =", ell_hat_eq, "\n")
 
-# Likelihood ratio test for H0: xi_CF = xi_CH
 LR_shape <- 2 * (ell_hat_free - ell_hat_eq)
-df_LR    <- 1
-p_LR     <- 1 - pchisq(LR_shape, df = df_LR)
+p_LR     <- 1 - pchisq(LR_shape, df = 1)
 
 cat("\nLikelihood ratio test for tail equality H0: xi_CF = xi_CH\n")
-cat("  LR statistic =", LR_shape, " with df =", df_LR, "\n")
+cat("  LR statistic =", LR_shape, " with df = 1\n")
 cat("  p-value      =", p_LR, "\n")
 
 # ============================================================
 # 9. Endpoint estimation under common tail shape (H0)
 #    + parametric bivariate bootstrap for CIs
 # ============================================================
-
-# 9.1 Point estimates of GP parameters and endpoints (log scale)
-
 xi_eq_hat  <- unname(par_eq_phi["xi"])
 sigma1_hat <- unname(par_eq_phi["scale1"])
 sigma2_hat <- unname(par_eq_phi["scale2"])
@@ -969,15 +862,11 @@ cat("\nLog-scale endpoint estimates (common-tail GP, H0):\n")
 cat("  y*_CF (log) =", ystar1_hat_log, "\n")
 cat("  y*_CH (log) =", ystar2_hat_log, "\n")
 
-ystar1_hat_orig <- exp(ystar1_hat_log)
-ystar2_hat_orig <- exp(ystar2_hat_log)
-
 cat("\nPoint estimates for endpoints (original scale, mm):\n")
-cat("  CF* ≈", ystar1_hat_orig, "mm\n")
-cat("  CH* ≈", ystar2_hat_orig, "mm\n")
+cat("  CF* ≈", exp(ystar1_hat_log), "mm\n")
+cat("  CH* ≈", exp(ystar2_hat_log), "mm\n")
 
-# 9.2 Empirical tail fractions
-
+# Tail fractions
 n_CF_total <- sum(!is.na(df_log$log_CF))
 n_CH_total <- sum(!is.na(df_log$log_CH))
 
@@ -991,9 +880,9 @@ cat("\nEmpirical tail fractions:\n")
 cat("  P(CF > u1) ≈", tail_frac_CF, "(u1 =", u1, ", exp(u1) ≈", exp(u1), "mm)\n")
 cat("  P(CH > u2) ≈", tail_frac_CH, "(u2 =", u2, ", exp(u2) ≈", exp(u2), "mm)\n")
 
-# 9.3 Parametric bivariate bootstrap (logistic GP, common tail shape)
-
-# Sub-threshold samples for realism
+# ------------------------------------------------------------
+# 9.3 Parametric bivariate bootstrap (logistic GP, common tail)
+# ------------------------------------------------------------
 sub_CF_cc   <- df_complete$log_CF[df_complete$log_CF <= u1]
 sub_CH_cc   <- df_complete$log_CH[df_complete$log_CH <= u2]
 sub_CF_only <- df_cf_only$log_CF[df_cf_only$log_CF <= u1]
@@ -1003,14 +892,11 @@ n_cc      <- nrow(df_complete)
 n_cf_only <- nrow(df_cf_only)
 n_ch_only <- nrow(df_ch_only)
 
-# Logistic EV parameter α from constrained fit
 dep_name <- grep("^dep", names(par_eq), value = TRUE)[1]
 alpha_logistic_hat <- unname(par_eq[dep_name])
-theta_gumbel_hat   <- 1 / alpha_logistic_hat  # Gumbel copula θ ≥ 1
+theta_gumbel_hat   <- 1 / alpha_logistic_hat
+gumbel_cop_hat      <- gumbelCopula(param = theta_gumbel_hat, dim = 2)
 
-gumbel_cop_hat <- gumbelCopula(param = theta_gumbel_hat, dim = 2)
-
-# Storage for bootstrap draws
 boot_sigma1 <- numeric(B_boot)
 boot_sigma2 <- numeric(B_boot)
 boot_xi     <- numeric(B_boot)
@@ -1021,10 +907,11 @@ boot_conv   <- logical(B_boot)
 set.seed(2027)
 
 for (b in seq_len(B_boot)) {
-  ## (1) Simulate complete cases via copula + marginal tails
-  U_cc <- rCopula(n_cc, gumbel_cop_hat)
-  Y1_cc <- numeric(n_cc)
-  Y2_cc <- numeric(n_cc)
+  
+  # (1) Simulate complete cases via copula + marginal tail mixtures
+  U_cc  <- rCopula(n_cc, gumbel_cop_hat)
+  Y1_cc <- numeric(n_cc)  # log_CF
+  Y2_cc <- numeric(n_cc)  # log_CH
   
   for (k in seq_len(n_cc)) {
     u1k <- U_cc[k, 1]
@@ -1051,7 +938,7 @@ for (b in seq_len(B_boot)) {
   
   X_biv_boot <- cbind(Y1_cc, Y2_cc)
   
-  ## (2) Simulate CF-only and CH-only marginals
+  # (2) Simulate CF-only / CH-only marginals and keep exceedances
   if (n_cf_only > 0L) {
     U1_cf <- runif(n_cf_only)
     Y1_cf <- numeric(n_cf_only)
@@ -1088,26 +975,14 @@ for (b in seq_len(B_boot)) {
     y2_M1_E_boot <- numeric(0L)
   }
   
-  ## (3) Build bootstrap likelihood and refit H0: ξ_CF = ξ_CH
-  ll_cens_log_boot <- make_ll_cens_logistic_bvpot(
-    x      = X_biv_boot,
-    u      = u_vec,
-    cshape = FALSE,
-    cscale = FALSE
-  )
-  ll_missing_boot <- make_ll_missing_uni(y1_E_M2_boot, y2_M1_E_boot, u1, u2)
+  # (3) Refit constrained model on bootstrap sample
+  ll_cens_log_boot <- make_ll_biv(x = X_biv_boot, u = u_vec, cshape = FALSE, cscale = FALSE)
+  ll_missing_boot  <- make_ll_uni(y1_E_M2_boot, y2_M1_E_boot, u1, u2)
   
-  loglik_full_boot <- function(theta) {
-    ll_cens_log_boot(theta) + ll_missing_boot(theta)
-  }
+  loglik_full_boot <- function(theta) ll_cens_log_boot(theta) + ll_missing_boot(theta)
+  
   negloglik_full_boot <- function(p) {
-    theta <- c(
-      scale1 = p[1],
-      shape1 = p[2],  # common ξ
-      scale2 = p[3],
-      shape2 = p[2],
-      dep    = p[4]
-    )
+    theta <- c(scale1 = p[1], shape1 = p[2], scale2 = p[3], shape2 = p[2], dep = p[4])
     -loglik_full_boot(theta)
   }
   
@@ -1119,11 +994,7 @@ for (b in seq_len(B_boot)) {
   )
   
   opt_b <- try(
-    optim(
-      par    = unname(start_boot),
-      fn     = negloglik_full_boot,
-      method = "Nelder-Mead"
-    ),
+    optim(par = unname(start_boot), fn = negloglik_full_boot, method = "Nelder-Mead"),
     silent = TRUE
   )
   
@@ -1143,6 +1014,7 @@ for (b in seq_len(B_boot)) {
   boot_sigma1[b] <- sigma1_b
   boot_sigma2[b] <- sigma2_b
   boot_xi[b]     <- xi_b
+  
   boot_y1star[b] <- u1 - sigma1_b / xi_b
   boot_y2star[b] <- u2 - sigma2_b / xi_b
 }
@@ -1151,10 +1023,8 @@ cat("\nParametric bootstrap (common-tail logistic GP):\n")
 cat("  Successful replicates:", sum(boot_conv), "out of", B_boot, "\n")
 
 boot_ok <- boot_conv & is.finite(boot_xi) & (boot_xi < 0)
-
 alpha_half <- (1 - ci_level) / 2
 
-# Bootstrap CIs for parameters (equal-tail)
 ci_sigma1 <- quantile(boot_sigma1[boot_ok], probs = c(alpha_half, 1 - alpha_half), na.rm = TRUE)
 ci_sigma2 <- quantile(boot_sigma2[boot_ok], probs = c(alpha_half, 1 - alpha_half), na.rm = TRUE)
 ci_xi     <- quantile(boot_xi[boot_ok],     probs = c(alpha_half, 1 - alpha_half), na.rm = TRUE)
@@ -1164,29 +1034,16 @@ cat("  sigma_CF:", ci_sigma1[1], "to", ci_sigma1[2], "\n")
 cat("  sigma_CH:", ci_sigma2[1], "to", ci_sigma2[2], "\n")
 cat("  xi      :", ci_xi[1],     "to", ci_xi[2],     "\n")
 
-# One-sided (upper) bootstrap CIs for log endpoints
 ci_y1_boot_log_upper <- quantile(boot_y1star[boot_ok], probs = ci_level, na.rm = TRUE)
 ci_y2_boot_log_upper <- quantile(boot_y2star[boot_ok], probs = ci_level, na.rm = TRUE)
 
-cat("\nOne-sided ", 100 * ci_level, "% upper bootstrap bounds for log endpoints:\n", sep = "")
-cat("  y*_CF (log) ≤ ", ci_y1_boot_log_upper, "\n", sep = "")
-cat("  y*_CH (log) ≤ ", ci_y2_boot_log_upper, "\n", sep = "")
-
-# Back-transform to original scale
-ci_y1_boot_orig_upper <- exp(ci_y1_boot_log_upper)
-ci_y2_boot_orig_upper <- exp(ci_y2_boot_log_upper)
-
-cat("\nOne-sided ", 100 * ci_level, "% upper bootstrap bounds for endpoints (original scale, mm):\n", sep = "")
-cat("  CF* ≤ ", ci_y1_boot_orig_upper, " mm\n", sep = "")
-cat("  CH* ≤ ", ci_y2_boot_orig_upper, " mm\n", sep = "")
+cat("\nOne-sided ", 100 * ci_level, "% upper bootstrap bounds for endpoints:\n", sep = "")
+cat("  CF* ≤ ", exp(ci_y1_boot_log_upper), " mm\n", sep = "")
+cat("  CH* ≤ ", exp(ci_y2_boot_log_upper), " mm\n", sep = "")
 
 # ============================================================
 # 10. Joint bootstrap distribution for (CF*, CH*)
-#      • 2D KDE + HPD contour
-#      • MAP = 2D KDE mode within window
 # ============================================================
-
-boot_ok <- boot_conv & is.finite(boot_xi) & (boot_xi < 0)
 if (!any(boot_ok)) stop("No valid bootstrap draws for endpoints (boot_ok is empty).")
 
 cf_boot_mm <- exp(boot_y1star[boot_ok])
@@ -1194,7 +1051,6 @@ ch_boot_mm <- exp(boot_y2star[boot_ok])
 
 boot_joint <- data.frame(CF = cf_boot_mm, CH = ch_boot_mm)
 
-# One–sided marginal 90% upper bounds (unchanged)
 q_upper    <- ci_level
 ub_cf_marg <- as.numeric(quantile(cf_boot_mm, probs = q_upper, na.rm = TRUE))
 ub_ch_marg <- as.numeric(quantile(ch_boot_mm, probs = q_upper, na.rm = TRUE))
@@ -1202,10 +1058,9 @@ ub_ch_marg <- as.numeric(quantile(ch_boot_mm, probs = q_upper, na.rm = TRUE))
 cat("\n", 100 * ci_level,
     "% one-sided marginal upper bounds for endpoints (original scale, mm):\n", sep = "")
 cat("  CF* ≤ ", ub_cf_marg, " mm\n", sep = "")
-cat("  CH* ≤ ", ub_ch_marg,  " mm\n", sep = "")
+cat("  CH* ≤ ", ub_ch_marg, " mm\n", sep = "")
 
-# ---- 10.2 KDE / plotting window & restricted draws --------------------------
-
+# KDE / plotting window 
 cf_window <- quantile(cf_boot_mm, c(0.01, 0.99), na.rm = TRUE)
 ch_window <- quantile(ch_boot_mm, c(0.01, 0.99), na.rm = TRUE)
 
@@ -1224,8 +1079,6 @@ boot_joint_kde <- boot_joint[inside_win, , drop = FALSE]
 if (nrow(boot_joint_kde) < 50L)
   stop("Too few draws inside KDE window; relax cf_window/ch_window.")
 
-# ---- 10.3 2D KDE on restricted draws (and joint MAP) -----------------------
-
 kde_joint <- MASS::kde2d(
   x    = boot_joint_kde$CF,
   y    = boot_joint_kde$CH,
@@ -1233,100 +1086,10 @@ kde_joint <- MASS::kde2d(
   lims = c(cf_window[1], cf_window[2], ch_window[1], ch_window[2])
 )
 
-## Joint MAP = mode of the 2D KDE within this window
-ij_max <- which(kde_joint$z == max(kde_joint$z), arr.ind = TRUE)[1, ]
-map_cf_joint <- kde_joint$x[ij_max[1]]
-map_ch_joint <- kde_joint$y[ij_max[2]]
-
-cat("\n2D KDE joint MAP (CF*, CH*):\n")
-cat("  CF*_MAP ≈", round(map_cf_joint, 1), "mm\n")
-cat("  CH*_MAP ≈", round(map_ch_joint, 1), "mm\n")
-
-# helper for HPD construction
-eval_kde2d <- function(kde, x, y) {
-  nx <- length(kde$x); ny <- length(kde$y)
-  ix <- findInterval(x, kde$x, all.inside = TRUE)
-  iy <- findInterval(y, kde$y, all.inside = TRUE)
-  ix[ix >= nx] <- nx - 1; iy[iy >= ny] <- ny - 1
-  x1 <- kde$x[ix];   x2 <- kde$x[ix + 1]
-  y1 <- kde$y[iy];   y2 <- kde$y[iy + 1]
-  z11 <- kde$z[cbind(ix,     iy)]
-  z21 <- kde$z[cbind(ix + 1, iy)]
-  z12 <- kde$z[cbind(ix,     iy + 1)]
-  z22 <- kde$z[cbind(ix + 1, iy + 1)]
-  wx <- (x - x1) / (x2 - x1 + 1e-12)
-  wy <- (y - y1) / (y2 - y1 + 1e-12)
-  (1 - wx) * (1 - wy) * z11 +
-    wx      * (1 - wy) * z21 +
-    (1 - wx) * wy      * z12 +
-    wx      * wy       * z22
-}
-
-dens_hat <- eval_kde2d(kde_joint, boot_joint_kde$CF, boot_joint_kde$CH)
-
-ord      <- order(dens_hat, decreasing = TRUE)
-cum_prob <- cumsum(rep(1 / length(dens_hat), length(dens_hat)))
-in_hpd   <- logical(length(dens_hat))
-in_hpd[ord] <- cum_prob <= ci_level
-hpd_threshold <- min(dens_hat[in_hpd])
-
-kde_df <- with(
-  kde_joint,
-  expand.grid(CF = x, CH = y) |>
-    transform(z = as.vector(z))
-)
-
-# ---- 10.4 Plot: 2D KDE + HPD + joint MAP -----------------------------------
-
-p_joint <- ggplot() +
-  geom_density_2d_filled(
-    data  = boot_joint_kde,
-    aes(x = CF, y = CH),
-    alpha = 0.7
-  ) +
-  geom_contour(
-    data  = kde_df,
-    aes(x = CF, y = CH, z = z),
-    breaks = hpd_threshold,
-    colour = "black",
-    linewidth = 1.0
-  ) +
-  geom_point(
-    data  = boot_joint_kde,
-    aes(x = CF, y = CH),
-    alpha = 0.25,
-    size  = 0.6,
-    color = "grey20"
-  ) +
-  # joint MAP from 2D KDE
-  geom_point(
-    aes(x = map_cf_joint, y = map_ch_joint),
-    color = "purple",
-    size  = 3
-  ) +
-  coord_cartesian(xlim = cf_window, ylim = ch_window) +
-  labs(
-    title = glue("{round(100 * ci_level)}% HPD region for (CF*, CH*)"),
-    x     = "CF endpoint (mm)",
-    y     = "CH endpoint (mm)",
-    fill  = "Density level"
-  ) +
-  theme_science
-p_joint
-ggsave(
-  file.path(FIG_DIR, "CF_CH_joint_endpoint_bootstrap.png"),
-  p_joint,
-  dpi   = 600,
-  w     = 6.5,
-  h     = 4.5,
-  units = "in"
-)
 
 # ============================================================
 # 11. Univariate bootstrap endpoint distributions: CF* and CH*
-#      MAP = mode of 1D KDE within same window
 # ============================================================
-
 cf_xlim_uni <- cf_window
 ch_xlim_uni <- ch_window
 
@@ -1336,27 +1099,9 @@ ch_in <- ch_boot_mm[ch_boot_mm >= ch_xlim_uni[1] & ch_boot_mm <= ch_xlim_uni[2]]
 if (length(cf_in) < 30L || length(ch_in) < 30L)
   warning("Few draws inside univariate KDE window; consider widening cf_window/ch_window.")
 
-cf_dens <- density(
-  cf_in,
-  n    = 512,
-  from = cf_xlim_uni[1],
-  to   = cf_xlim_uni[2]
-)
+cf_dens <- density(cf_in, n = 512, from = cf_xlim_uni[1], to = cf_xlim_uni[2])
+ch_dens <- density(ch_in, n = 512, from = ch_xlim_uni[1], to = ch_xlim_uni[2])
 
-ch_dens <- density(
-  ch_in,
-  n    = 512,
-  from = ch_xlim_uni[1],
-  to   = ch_xlim_uni[2]
-)
-
-cf_df      <- data.frame(CF = cf_dens$x, density = cf_dens$y)
-cf_samp_df <- data.frame(CF = cf_in)
-
-ch_df      <- data.frame(CH = ch_dens$x, density = ch_dens$y)
-ch_samp_df <- data.frame(CH = ch_in)
-
-## Marginal MAPs = modes of 1D KDEs
 map_cf_marg <- cf_dens$x[which.max(cf_dens$y)]
 map_ch_marg <- ch_dens$x[which.max(ch_dens$y)]
 
@@ -1364,10 +1109,9 @@ cat("\nMarginal KDE MAPs for endpoints (within window):\n")
 cat("  CF*_MAP, marginal ≈", round(map_cf_marg, 1), "mm\n")
 cat("  CH*_MAP, marginal ≈", round(map_ch_marg, 1), "mm\n")
 
-# CF* bootstrap distribution
 p_cf <- ggplot() +
   geom_histogram(
-    data  = cf_samp_df,
+    data  = data.frame(CF = cf_in),
     aes(x = CF, y = ..density..),
     bins  = 40,
     fill  = "lightblue",
@@ -1375,23 +1119,20 @@ p_cf <- ggplot() +
     alpha = 0.6
   ) +
   geom_line(
-    data = cf_df,
+    data = data.frame(CF = cf_dens$x, density = cf_dens$y),
     aes(x = CF, y = density),
     color = "darkblue",
-    size  = 1.2
+    linewidth = 1.2
   ) +
-  geom_vline(xintercept = map_cf_marg,
-             color = "purple", linetype = "dashed", size = 1.2) +
-  geom_vline(xintercept = ub_cf_marg,
-             color = "orange", linetype = "dotdash", size = 1.2) +
+  geom_vline(xintercept = map_cf_marg, color = "purple", linetype = "dashed", linewidth = 1.2) +
+  geom_vline(xintercept = ub_cf_marg,  color = "orange", linetype = "dotdash", linewidth = 1.2) +
   labs(x = "CF endpoint (mm)", y = "Density") +
   coord_cartesian(xlim = cf_xlim_uni) +
   theme_science
-p_cf
-# CH* bootstrap distribution
+
 p_ch <- ggplot() +
   geom_histogram(
-    data  = ch_samp_df,
+    data  = data.frame(CH = ch_in),
     aes(x = CH, y = ..density..),
     bins  = 40,
     fill  = "lightgreen",
@@ -1399,21 +1140,20 @@ p_ch <- ggplot() +
     alpha = 0.6
   ) +
   geom_line(
-    data = ch_df,
+    data = data.frame(CH = ch_dens$x, density = ch_dens$y),
     aes(x = CH, y = density),
     color = "darkgreen",
-    size = 1.2
+    linewidth = 1.2
   ) +
-  geom_vline(xintercept = map_ch_marg,
-             color = "purple", linetype = "dashed", size = 1.2) +
-  geom_vline(xintercept = ub_ch_marg,
-             color = "orange", linetype = "dotdash", size = 1.2) +
+  geom_vline(xintercept = map_ch_marg, color = "purple", linetype = "dashed", linewidth = 1.2) +
+  geom_vline(xintercept = ub_ch_marg,  color = "orange", linetype = "dotdash", linewidth = 1.2) +
   labs(x = "CH endpoint (mm)", y = "Density") +
   coord_cartesian(xlim = ch_xlim_uni) +
   theme_science
-p_ch
 ggsave(file.path(FIG_DIR, "CF_endpoint_bootstrap.png"),
        p_cf, dpi = 600, w = 6.5, h = 4.5, units = "in")
 ggsave(file.path(FIG_DIR, "CH_endpoint_bootstrap.png"),
        p_ch, dpi = 600, w = 6.5, h = 4.5, units = "in")
 
+p_cf
+p_ch

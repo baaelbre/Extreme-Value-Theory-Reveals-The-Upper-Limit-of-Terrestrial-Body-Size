@@ -1,21 +1,24 @@
 # ============================================================
-# EVT animal size demo figures (NO legends on scatter + 3D)
-# - 2D scatter with thresholds & regimes (legend removed)
-# - 3D trait–trait–density surface (KDE + EVT tail extension; legend removed)
-# - GPD shape parameter (xi) illustration with endpoint
-# - Equal-tail property on transformed traits
-# - Endpoint-distance survival illustration
+# EVT animal size demo figures (complete script)
+# - 4 figures + 2x2 panel (A–D) with tags UNDER each plot
+# - Plotly 3D axis titles (Trait 1 / Trait 2 / Density) made BIGGER
+# - Exports: PDF (vector container), SVG (if svglite), PNG (300 dpi)
 # ============================================================
 
 suppressPackageStartupMessages({
   library(dplyr)
   library(ggplot2)
-  library(MASS)    # kde2d
-  library(plotly)  # interactive 3D
-  library(evd)     # GPD density
+  library(MASS)       # kde2d
+  library(plotly)     # interactive 3D
+  library(evd)        # GPD density
   library(purrr)
   library(tibble)
   library(truncnorm)
+  
+  # panel/export helpers
+  library(patchwork)
+  library(grid)
+  library(png)
 })
 
 set.seed(1)
@@ -23,7 +26,6 @@ set.seed(1)
 # ------------------------------------------------------------
 # Global options and theoretical endpoint
 # ------------------------------------------------------------
-
 show_true_endpoint <- TRUE
 
 b_star      <- 7
@@ -36,9 +38,8 @@ endpoint_df <- tibble(
 )
 
 # ------------------------------------------------------------
-# 0. Example data (replace with your real traits)
+# 0) Example data (replace with your real traits)
 # ------------------------------------------------------------
-
 n  <- 1000
 T1 <- rtruncnorm(n, a = -Inf, b = b_star, mean = 5, sd = 0.5)
 T2 <- 1.2 * T1 + rnorm(n, 0, 0.3) + 0.3
@@ -80,10 +81,8 @@ regime_cols <- c(
 )
 
 # ------------------------------------------------------------
-# 1. 2D scatter with three tail regimes + theoretical endpoint
-#    (LEGEND REMOVED)
+# 1) 2D scatter with three tail regimes + theoretical endpoint
 # ------------------------------------------------------------
-
 p_scatter <- ggplot(dat, aes(x = Trait1, y = Trait2)) +
   annotate(
     "rect",
@@ -101,7 +100,7 @@ p_scatter <- ggplot(dat, aes(x = Trait1, y = Trait2)) +
     "rect",
     xmin = u1,    xmax = x_max,
     ymin = u2,    ymax = y_max,
-    fill = regime_cols["(E1,E2)"],  alpha = 0.07
+    fill = regime_cols["(E1,E2)"], alpha = 0.07
   ) +
   geom_point(aes(color = regime), size = 1.8, alpha = 0.8) +
   scale_color_manual(values = regime_cols, guide = "none") +
@@ -122,18 +121,14 @@ p_scatter <- ggplot(dat, aes(x = Trait1, y = Trait2)) +
     panel.grid.minor = element_blank()
   )
 
-print(p_scatter)
 ggsave("scatter_thresholds_regimes.png", p_scatter, width = 6, height = 5, dpi = 300)
 
 # ------------------------------------------------------------
-# 2. 3D trait–trait–density surface + EVT tail extension
-#    (LEGEND REMOVED)
+# 2) 3D trait–trait–density surface + EVT tail extension
 # ------------------------------------------------------------
-
-# 2D KDE (empirical density part)
 kde <- MASS::kde2d(dat$Trait1, dat$Trait2, n = 60)
 
-# Tail model: independent GPD × GPD (demo), extended to theoretical endpoints
+# Demo tail model: independent GPD × GPD, extended to endpoints
 xi1_tail <- -0.3
 xi2_tail <- -0.3
 
@@ -152,7 +147,6 @@ z_tail_grid <- p_joint * outer(f1_tail, f2_tail, "*")
 # Base-plane z=0 rectangle template
 z0 <- matrix(0, nrow = 2, ncol = 2)
 
-# 3D plot (everything has showlegend = FALSE; layout showlegend = FALSE)
 p_3d <- plotly::plot_ly() |>
   add_surface(
     x = ~kde$x, y = ~kde$y, z = ~kde$z,
@@ -168,7 +162,7 @@ p_3d <- plotly::plot_ly() |>
     showscale  = FALSE,
     showlegend = FALSE
   ) |>
-  # (¬E1,E2) band
+  # base-plane colored regimes
   add_surface(
     x = c(x_min, u1), y = c(u2, y_max), z = z0,
     opacity    = 0.25,
@@ -179,7 +173,6 @@ p_3d <- plotly::plot_ly() |>
     showscale  = FALSE,
     showlegend = FALSE
   ) |>
-  # (E1,¬E2) band
   add_surface(
     x = c(u1, x_max), y = c(y_min, u2), z = z0,
     opacity    = 0.25,
@@ -190,7 +183,6 @@ p_3d <- plotly::plot_ly() |>
     showscale  = FALSE,
     showlegend = FALSE
   ) |>
-  # (E1,E2) corner
   add_surface(
     x = c(u1, x_max), y = c(u2, y_max), z = z0,
     opacity    = 0.45,
@@ -201,7 +193,7 @@ p_3d <- plotly::plot_ly() |>
     showscale  = FALSE,
     showlegend = FALSE
   ) |>
-  # points on base plane (no legend)
+  # base-plane points
   add_markers(
     data = filter(dat, regime == "none"),
     x = ~Trait1, y = ~Trait2, z = 0,
@@ -226,7 +218,7 @@ p_3d <- plotly::plot_ly() |>
     marker = list(size = 4.5, color = regime_cols["(E1,E2)"]),
     showlegend = FALSE
   ) |>
-  # thresholds on z=0
+  # threshold lines on z=0
   add_lines(
     x = c(u1, u1), y = c(y_min, y_max), z = 0,
     line = list(width = 5, dash = "dash", color = "red"),
@@ -247,24 +239,37 @@ if (show_true_endpoint) {
     )
 }
 
+# BIGGER axis titles + ticks (Trait 1 / Trait 2 / Density)
+axis_title_size <- 28  # <-- increase this further if needed
+axis_tick_size  <- 16
+
 p_3d <- p_3d |>
   layout(
     scene = list(
-      xaxis  = list(title = "Trait 1"),
-      yaxis  = list(title = "Trait 2"),
-      zaxis  = list(title = "Density"),
+      xaxis  = list(
+        title     = "Trait 1",
+        titlefont = list(size = axis_title_size),
+        tickfont  = list(size = axis_tick_size)
+      ),
+      yaxis  = list(
+        title     = "Trait 2",
+        titlefont = list(size = axis_title_size),
+        tickfont  = list(size = axis_tick_size)
+      ),
+      zaxis  = list(
+        title     = "Density",
+        titlefont = list(size = axis_title_size),
+        tickfont  = list(size = axis_tick_size)
+      ),
       camera = list(eye = list(x = 1.7, y = 1.4, z = 1.2))
     ),
     showlegend = FALSE,
     title = ""
   )
 
-p_3d
-
 # ------------------------------------------------------------
-# 3. GPD shape parameter xi: tail and endpoint illustration
+# 3) GPD shape parameter ξ: tail and endpoint illustration
 # ------------------------------------------------------------
-
 u     <- 0
 sigma <- 1
 xs    <- seq(0, 6, length.out = 400)
@@ -323,12 +328,9 @@ p_xi <- ggplot(dens_df, aes(x = x, y = dens, colour = xi)) +
   theme_minimal(base_size = 13) +
   theme(panel.grid.minor = element_blank())
 
-print(p_xi)
-
 # ------------------------------------------------------------
-# 4. Log–log tail survival for both traits (slope comparison)
+# 4) Log–log tail survival for both traits (slope comparison)
 # ------------------------------------------------------------
-
 make_tail_curve <- function(ex, n_grid = 30, name = "Trait") {
   ex <- ex[ex > 0] |> sort()
   probs_grid <- seq(0.1, 0.99, length.out = n_grid)
@@ -359,13 +361,11 @@ p_tail_loglog <- ggplot(curves) +
   theme_minimal(base_size = 13) +
   theme(panel.grid.minor = element_blank())
 
-print(p_tail_loglog)
 ggsave("tail_loglog_traits.png", p_tail_loglog, width = 6, height = 5, dpi = 300)
 
 # ------------------------------------------------------------
-# 5. Unconditional survival vs distance to empirical maximum
+# 5) Unconditional survival vs distance to empirical maximum
 # ------------------------------------------------------------
-
 y1_tail <- dat$Trait1[dat$Trait1 >= u1]
 y2_tail <- dat$Trait2[dat$Trait2 >= u2]
 
@@ -406,5 +406,80 @@ p_endpoint_survival <- ggplot(curves_ep, aes(x = t, y = S, colour = Trait)) +
   theme_minimal(base_size = 13) +
   theme(panel.grid.minor = element_blank())
 
-print(p_endpoint_survival)
 ggsave("endpoint_distance_survival_uncond.png", p_endpoint_survival, width = 6, height = 5, dpi = 300)
+
+# ------------------------------------------------------------
+# 6) Make a static PNG of the plotly 3D plot (for panel)
+# ------------------------------------------------------------
+p3d_png  <- "p_3d_static.png"
+p3d_html <- "p_3d_static.html"
+ok <- FALSE
+
+# Preferred: plotly::save_image (Kaleido)
+ok <- tryCatch({
+  plotly::save_image(p_3d, file = p3d_png, width = 2000, height = 1600, scale = 2)
+  file.exists(p3d_png)
+}, error = function(e) FALSE)
+
+# Fallback: htmlwidget + webshot2
+if (!ok) {
+  if (!requireNamespace("htmlwidgets", quietly = TRUE)) install.packages("htmlwidgets")
+  if (!requireNamespace("webshot2", quietly = TRUE))    install.packages("webshot2")
+  
+  ok <- tryCatch({
+    htmlwidgets::saveWidget(p_3d, file = p3d_html, selfcontained = TRUE)
+    webshot2::webshot(url = p3d_html, file = p3d_png, vwidth = 2000, vheight = 1600, zoom = 2)
+    file.exists(p3d_png)
+  }, error = function(e) FALSE)
+}
+
+if (!ok) stop("Could not export p_3d to PNG. Try installing/updating 'plotly' or 'webshot2'.")
+
+img <- png::readPNG(p3d_png)
+p_3d_static <- patchwork::wrap_elements(full = grid::rasterGrob(img, interpolate = TRUE))
+
+# ------------------------------------------------------------
+# 7) 2x2 panel with tags UNDER each plot + export
+# ------------------------------------------------------------
+out_base <- "EVT_demo_panel_2x2"
+panel_w  <- 10   # inches
+panel_h  <- 8    # inches
+
+tag_strip <- function(tag, size = 14) {
+  ggplot() +
+    annotate(
+      "text", x = 0.5, y = 0.5,
+      label = paste0("(", tag, ")"),
+      fontface = "bold",
+      size = size / 3
+    ) +
+    coord_cartesian(xlim = c(0, 1), ylim = c(0, 1), expand = FALSE) +
+    theme_void() +
+    theme(plot.margin = margin(0, 0, 0, 0))
+}
+
+tight_bottom <- theme(plot.margin = margin(5.5, 5.5, 0, 5.5))
+
+A <- p_3d_static / tag_strip("A") + plot_layout(heights = c(1, 0.08))
+B <- (p_scatter + tight_bottom) / tag_strip("B") + plot_layout(heights = c(1, 0.08))
+C <- (p_xi + tight_bottom)      / tag_strip("C") + plot_layout(heights = c(1, 0.08))
+D <- (p_endpoint_survival + tight_bottom) / tag_strip("D") + plot_layout(heights = c(1, 0.08))
+
+panel_2x2 <- wrap_plots(A, B, C, D, ncol = 2, byrow = TRUE) +
+  plot_layout(widths = c(1, 1), heights = c(1, 1))
+
+# Vector exports (container is vector; panel includes a raster for A)
+ggsave(paste0(out_base, ".pdf"), panel_2x2, width = panel_w, height = panel_h, device = cairo_pdf)
+if (requireNamespace("svglite", quietly = TRUE)) {
+  ggsave(paste0(out_base, ".svg"), panel_2x2, width = panel_w, height = panel_h, device = svglite::svglite)
+}
+ggsave(paste0(out_base, ".png"), panel_2x2, width = panel_w, height = panel_h, dpi = 300)
+
+ggsave(
+  "EVT_demo_panel_2x2.tiff",
+  panel_2x2,
+  width = panel_w, height = panel_h, units = "in",
+  dpi = 300,
+  device = "tiff",
+  compression = "lzw"
+)

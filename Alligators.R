@@ -24,6 +24,7 @@ set.seed(42)
 # This is code from the evd package (Github page cran/evd) that contains the
 # negative log likelihood for bivariate logistic dependence
 # ------------------------------------------------------------
+
 citation("evd")
 # system("R CMD SHLIB bvpot.c") # if you need to compile the C code, with Rtools
 # this creates a .dll and a .o file
@@ -156,6 +157,263 @@ for (tr in trait_names) {
 }
 print(u0_by_trait)       # thresholds on log scale (for the analysis)
 print(exp(u0_by_trait))  # thresholds on original scale
+
+# ============================================================
+# 4B Pairwise tail regimes & missing/observed/exceed/censored
+#     (SVL, TL) — quadrant plot on log-scale
+#     Legend uses tuples (E1,E2,O1,O2)
+# ============================================================
+
+u1 <- u0_by_trait["SVL"]
+u2 <- u0_by_trait["TL"]
+
+x1 <- df_log$log_SVL  # trait 1 = SVL
+x2 <- df_log$log_TL   # trait 2 = TL
+
+# Observed / missing indicators
+O1 <- is.finite(x1)
+O2 <- is.finite(x2)
+M1 <- !O1
+M2 <- !O2
+
+# Exceedance indicators (only meaningful if observed)
+E1 <- O1 & (x1 > u1)
+E2 <- O2 & (x2 > u2)
+
+# Convenience: both observed
+both_obs <- O1 & O2
+
+# Helper: tuple label in figure order (E1,E2,O1,O2)
+tuple <- function(e1, e2, o1, o2) sprintf("(%d,%d,%d,%d)", e1, e2, o1, o2)
+
+make_pair_plot_alligators <- function(t1 = "SVL", t2 = "TL") {
+  fn <- file.path(FIG_DIR, glue("pair_scatter_{t1}_{t2}_final.png"))
+  
+  # Axis ranges based on observed data
+  xr <- range(x1[O1], na.rm = TRUE)
+  yr <- range(x2[O2], na.rm = TRUE)
+  
+  pad <- function(r, p = 0.03) {
+    w <- diff(r)
+    c(r[1] - p * w, r[2] + p * w)
+  }
+  xr <- pad(xr); yr <- pad(yr)
+  x_min <- xr[1]; x_max <- xr[2]
+  y_min <- yr[1]; y_max <- yr[2]
+  
+  # ---------------------------
+  # 1) Points: both traits observed (O1=O2=1)
+  # ---------------------------
+  dd_dot <- tibble(
+    specimen = df$specimen[both_obs],
+    x        = x1[both_obs],
+    y        = x2[both_obs],
+    kind     = case_when(
+      E1[both_obs] & E2[both_obs]  ~ tuple(1, 1, 1, 1),  # joint exceed
+      E1[both_obs] & !E2[both_obs] ~ tuple(1, 0, 1, 1),  # SVL exceed, TL observed subthr
+      !E1[both_obs] & E2[both_obs] ~ tuple(0, 1, 1, 1),  # TL exceed, SVL observed subthr
+      TRUE                          ~ tuple(0, 0, 1, 1)  # both observed subthr
+    )
+  )
+  
+  # ---------------------------
+  # 2) Segments: partially observed extremes (one exceed, partner missing)
+  # ---------------------------
+  
+  # Vertical segments: SVL exceed, TL missing => (1,0,1,0)
+  dd_v <- tibble(
+    specimen = df$specimen[E1 & M2],
+    x        = x1[E1 & M2],
+    y0       = y_min,
+    y1       = y_max,
+    kind     = tuple(1, 0, 1, 0)
+  )
+  
+  # Horizontal segments: TL exceed, SVL missing => (0,1,0,1)
+  dd_h <- tibble(
+    specimen = df$specimen[M1 & E2],
+    y        = x2[M1 & E2],
+    x0       = x_min,
+    x1       = x_max,
+    kind     = tuple(0, 1, 0, 1)
+  )
+  
+  # ---------------------------
+  # Colour map keyed by (E1,E2,O1,O2)
+  # ---------------------------
+  keys <- c(
+    tuple(1, 1, 1, 1),
+    tuple(1, 0, 1, 1),
+    tuple(0, 1, 1, 1),
+    tuple(0, 0, 1, 1),
+    tuple(1, 0, 1, 0),
+    tuple(0, 1, 0, 1)
+  )
+  
+  vals <- c(
+    "#DC2626",  # (1,1,1,1) joint exceed, both observed
+    "#2563EB",  # (1,0,1,1) SVL exceed, TL observed subthr
+    "#059669",  # (0,1,1,1) TL exceed, SVL observed subthr
+    "grey70",   # (0,0,1,1) both observed subthr
+    "#2563EB",  # (1,0,1,0) SVL exceed, TL missing (segment)
+    "#059669"   # (0,1,0,1) TL exceed, SVL missing (segment)
+  )
+  
+  col_map <- setNames(vals, keys)
+  
+  # Legend order
+  legend_breaks <- c(
+    tuple(0, 0, 1, 1),
+    tuple(0, 1, 1, 1),
+    tuple(1, 0, 1, 1),
+    tuple(1, 1, 1, 1),
+    tuple(0, 1, 0, 1),
+    tuple(1, 0, 1, 0)
+  )
+  
+  # ---------------------------
+  # Background tail regions (based on thresholds u1,u2)
+  # ---------------------------
+  p <- ggplot() +
+    annotate(
+      "rect",
+      xmin = x_min, xmax = u1,
+      ymin = u2,    ymax = y_max,
+      fill = col_map[tuple(0, 1, 1, 1)], alpha = 0.04
+    ) +
+    annotate(
+      "rect",
+      xmin = u1,    xmax = x_max,
+      ymin = y_min, ymax = u2,
+      fill = col_map[tuple(1, 0, 1, 1)], alpha = 0.04
+    ) +
+    annotate(
+      "rect",
+      xmin = u1,    xmax = x_max,
+      ymin = u2,    ymax = y_max,
+      fill = col_map[tuple(1, 1, 1, 1)], alpha = 0.07
+    ) +
+    
+    geom_point(
+      data = dd_dot,
+      aes(x = x, y = y, color = kind),
+      size = 2.6, alpha = 0.95
+    ) +
+    geom_segment(
+      data = dd_v,
+      aes(x = x, xend = x, y = y0, yend = y1, color = kind),
+      linewidth = 0.9, alpha = 0.95
+    ) +
+    geom_segment(
+      data = dd_h,
+      aes(x = x0, xend = x1, y = y, yend = y, color = kind),
+      linewidth = 0.9, alpha = 0.95
+    ) +
+    
+    geom_vline(xintercept = u1, linetype = "dashed", color = "red") +
+    geom_hline(yintercept = u2, linetype = "dashed", color = "red") +
+    
+    scale_color_manual(
+      values = col_map,
+      breaks = legend_breaks,
+      name   = "(E1,E2,O1,O2)"
+    ) +
+    coord_cartesian(xlim = xr, ylim = yr, expand = FALSE) +
+    labs(
+      x = glue("log({t1} [cm])"),
+      y = glue("log({t2} [cm])")
+    ) +
+    theme_science
+  
+  print(p)
+  ggsave(fn, p, dpi = 600, w = 6.8, h = 5.6, units = "in")
+  message("Saved: ", normalizePath(fn))
+}
+
+# Create the plot
+make_pair_plot_alligators("SVL", "TL")
+
+# ============================================================
+# 6b. Empirical near-endpoint *unconditional* survival curves
+#      using empirical maxima as pseudo-endpoints
+#      Ŝ(t) = P(Y > y_max - t)
+# ============================================================
+
+# All log-data (non-missing) per margin
+y_SVL_all <- df_log$log_SVL[!is.na(df_log$log_SVL)]
+y_TL_all  <- df_log$log_TL[ !is.na(df_log$log_TL )]
+
+# Helper: build Ŝ(t) = P(Y > y_max - t) for one trait (on log-scale)
+make_endpoint_sf_curve_uncond <- function(y, u, name) {
+  y_all <- y[is.finite(y)]
+  n_all <- length(y_all)
+  
+  y_tail <- y_all[y_all > u]
+  y_tail <- sort(y_tail)
+  n_tail <- length(y_tail)
+  
+  if (n_tail < 5L) {
+    warning(glue("Too few exceedances for {name} (n_tail < 5)."))
+    return(tibble())
+  }
+  
+  # pseudo-endpoint = empirical max within tail
+  y_max <- max(y_tail)
+  
+  # indices 1..(n_tail-1) so Ŝ never equals 0 and t_hat > 0
+  k     <- seq_len(n_tail - 1L)
+  t_hat <- y_max - y_tail[k]          # distance to empirical max (log-scale)
+  
+  # conditional survival given Y > u:
+  #   S_cond(t) = P(Y > y_tail[k] | Y > u) = (n_tail - k)/n_tail
+  S_cond <- (n_tail - k) / n_tail
+  
+  # tail fraction P(Y > u) ≈ n_tail / n_all
+  p_tail <- n_tail / n_all
+  
+  # unconditional survival:
+  #   S_uncond(t) = P(Y > u) * S_cond(t)
+  S_uncond <- p_tail * S_cond
+  
+  tibble(
+    t_hat = t_hat,
+    S_hat = S_uncond,
+    Trait = name
+  )
+}
+
+sf_SVL <- make_endpoint_sf_curve_uncond(y_SVL_all, u1, "SVL")
+sf_TL  <- make_endpoint_sf_curve_uncond(y_TL_all,  u2, "TL")
+
+sf_all <- bind_rows(sf_SVL, sf_TL)
+
+trait_cols <- c(
+  "SVL" = "#377eb8",  # blue
+  "TL"  = "#1b9e77"   # green
+)
+
+p_sf_endpoint <- ggplot(sf_all, aes(x = t_hat, y = S_hat, colour = Trait)) +
+  geom_point(size = 2, alpha = 0.9) +
+  scale_colour_manual(values = trait_cols, name = "Trait") +
+  scale_x_log10() +
+  scale_y_log10() +
+  labs(
+    x = expression(hat(t) == y[max] - y),
+    y = expression(hat(S)(t) == P(Y > y[max] - t))
+  ) +
+  theme_science
+
+print(p_sf_endpoint)
+
+ggsave(
+  file.path(FIG_DIR, "SVL_TL_empirical_survival_endpoint_uncond.png"),
+  p_sf_endpoint,
+  dpi   = 600,
+  w     = 6.0,
+  h     = 4.5,
+  units = "in"
+)
+
 
 # ------------------------------------------------------------
 # Helper functions for univariate diagnostics
@@ -882,6 +1140,98 @@ cat("  SVL*_mode =", round(svl_mode, 1), " cm\n")
 cat("  TL*_mode  =", round(tl_mode,  1), " cm\n")
 
 # SVL Stokes
+SVL_stokes <- 239
+TL_stokes <- 450
+
+# ============================================================
+# 10. Exceedance probability for the Stokes alligator
+# ============================================================
+
+# --- 10.1 Helper: unconditional exceedance prob under a POT/GPD tail
+# If y > u:
+#   P(Y > y) = P(Y > u) * P(Y > y | Y > u)
+#           ≈ p_u      * S_GPD(y - u; sigma, xi)
+pot_exceed_prob <- function(y, u, sigma, xi, p_u) {
+  if (!is.finite(y) || !is.finite(u) || !is.finite(sigma) || !is.finite(xi) || !is.finite(p_u))
+    return(NA_real_)
+  if (y <= u) return(NA_real_)  # outside tail model (by design)
+  
+  x <- y - u
+  if (abs(xi) < 1e-8) {
+    # exponential limit
+    return(p_u * exp(-x / sigma))
+  } else {
+    term <- 1 + xi * x / sigma
+    if (term <= 0) return(0)    # beyond finite endpoint when xi < 0
+    return(p_u * term^(-1 / xi))
+  }
+}
+
+# --- 10.2 Helper: Gumbel copula C(u,v) (closed form)
+gumbel_C <- function(u, v, theta) {
+  # theta >= 1
+  a <- (-log(u))^theta
+  b <- (-log(v))^theta
+  exp(-(a + b)^(1 / theta))
+}
+
+# --- 10.3 Helper: joint exceedance from marginals + copula
+# For U=F1(Y1), V=F2(Y2) with copula C:
+#   P(Y1>y1, Y2>y2) = 1 - u - v + C(u,v),  where u=F1(y1), v=F2(y2)
+joint_exceed_gumbel <- function(p1, p2, theta) {
+  # p1 = P(Y1>y1), p2 = P(Y2>y2)
+  u <- 1 - p1
+  v <- 1 - p2
+  eps <- 1e-12
+  u <- min(max(u, eps), 1 - eps)
+  v <- min(max(v, eps), 1 - eps)
+  Cuv <- gumbel_C(u, v, theta)
+  1 - u - v + Cuv
+}
+
+
+log_SVL_stokes <- log(SVL_stokes)
+log_TL_stokes  <- log(TL_stokes)
+
+cat("\nStokes alligator (log scale):\n")
+cat("  log(SVL) =", log_SVL_stokes, "\n")
+cat("  log(TL)  =", log_TL_stokes,  "\n")
+
+# --- Marginal exceedance probs under fitted POT tails (requires Stokes > thresholds)
+p_SVL_stokes <- pot_exceed_prob(
+  y    = log_SVL_stokes,
+  u    = u1,
+  sigma= sigma1_hat,
+  xi   = xi_eq_hat,
+  p_u  = tail_frac_SVL
+)
+
+p_TL_stokes <- pot_exceed_prob(
+  y    = log_TL_stokes,
+  u    = u2,
+  sigma= sigma2_hat,
+  xi   = xi_eq_hat,
+  p_u  = tail_frac_TL
+)
+
+cat("\nUnivariate exceedance (plug-in POT):\n")
+cat("  P(SVL >", SVL_stokes, "cm) ≈", signif(p_SVL_stokes, 4), "\n")
+cat("  P(TL  >", TL_stokes,  "cm) ≈", signif(p_TL_stokes,  4), "\n")
+
+# --- Dependence from fitted logistic model (evd parameter alpha; Gumbel theta = 1/alpha)
+alpha_logistic <- alpha_logistic_hat
+theta_gumbel   <- 1 / alpha_logistic
+
+cat("\nDependence (from bivariate POT fit):\n")
+cat("  alpha (logistic) =", signif(alpha_logistic, 4), "\n")
+cat("  theta (Gumbel)   =", signif(theta_gumbel,   4), "\n")
+
+# --- Joint exceedance under fitted dependence (plug-in, closed form)
+p_joint <- joint_exceed_gumbel(p_SVL_stokes, p_TL_stokes, theta_gumbel)
+
+cat("\nJoint exceedance under fitted logistic/Gumbel dependence (plug-in):\n")
+cat("  P(SVL >", SVL_stokes, ", TL >", TL_stokes, ") ≈", signif(p_joint, 4), "\n", sep = "")
+
 
 # ============================================================
 # 11. Joint bootstrap distribution for (SVL*, TL*)
@@ -1019,6 +1369,150 @@ ggsave(
   h     = 4.5,
   units = "in"
 )
+
+# ============================================================
+# 12. Univariate bootstrap endpoint distributions: SVL* and TL*
+#      MAP = mode of 1D KDE within same window
+# ============================================================
+
+# Keep only successful, finite bootstrap draws with xi < 0 (should already exist)
+boot_ok <- boot_conv & is.finite(boot_xi) & (boot_xi < 0)
+if (!any(boot_ok)) stop("No valid bootstrap draws for endpoints (boot_ok is empty).")
+
+# Bootstrap endpoints on original (cm) scale
+svl_boot_cm <- exp(boot_y1star[boot_ok])
+tl_boot_cm  <- exp(boot_y2star[boot_ok])
+
+# Use same plotting windows as for the 2D KDE
+svl_xlim_uni <- svl_window
+tl_xlim_uni  <- tl_window
+
+svl_in <- svl_boot_cm[svl_boot_cm >= svl_xlim_uni[1] & svl_boot_cm <= svl_xlim_uni[2]]
+tl_in  <- tl_boot_cm[ tl_boot_cm  >= tl_xlim_uni[1]  & tl_boot_cm  <= tl_xlim_uni[2]]
+
+if (length(svl_in) < 30L || length(tl_in) < 30L)
+  warning("Few draws inside univariate KDE window; consider widening svl_window/tl_window.")
+
+# 1D KDEs within the plotting window
+svl_dens <- density(
+  svl_in,
+  n    = 512,
+  from = svl_xlim_uni[1],
+  to   = svl_xlim_uni[2]
+)
+
+tl_dens <- density(
+  tl_in,
+  n    = 512,
+  from = tl_xlim_uni[1],
+  to   = tl_xlim_uni[2]
+)
+
+svl_df      <- data.frame(SVL = svl_dens$x, density = svl_dens$y)
+svl_samp_df <- data.frame(SVL = svl_in)
+
+tl_df       <- data.frame(TL = tl_dens$x, density = tl_dens$y)
+tl_samp_df  <- data.frame(TL = tl_in)
+
+# Marginal MAPs = modes of 1D KDEs
+map_svl_marg <- svl_dens$x[which.max(svl_dens$y)]
+map_tl_marg  <- tl_dens$x[which.max(tl_dens$y)]
+
+cat("\nMarginal KDE MAPs for endpoints (within window):\n")
+cat("  SVL*_MAP, marginal ≈", round(map_svl_marg, 1), "cm\n")
+cat("  TL*_MAP,  marginal ≈", round(map_tl_marg,  1), "cm\n")
+
+# If you didn’t compute marginal one-sided upper bounds yet, uncomment:
+# ub_svl_marg <- as.numeric(quantile(svl_boot_cm, probs = ci_level, na.rm = TRUE))
+# ub_tl_marg  <- as.numeric(quantile(tl_boot_cm,  probs = ci_level, na.rm = TRUE))
+
+# ---- SVL* bootstrap distribution ----
+p_svl <- ggplot() +
+  geom_histogram(
+    data  = svl_samp_df,
+    aes(x = SVL, y = ..density..),
+    bins  = 40,
+    fill  = "lightblue",
+    color = "black",
+    alpha = 0.6
+  ) +
+  geom_line(
+    data = svl_df,
+    aes(x = SVL, y = density),
+    color = "darkblue",
+    linewidth = 1.1
+  ) +
+  geom_vline(
+    xintercept = map_svl_marg,
+    color = "purple",
+    linetype = "dashed",
+    linewidth = 1.1
+  ) +
+  geom_vline(
+    xintercept = ub_svl_marg,
+    color = "orange",
+    linetype = "dotdash",
+    linewidth = 1.1
+  ) +
+  # Optional: mark Stokes on SVL axis
+  geom_vline(
+    xintercept = SVL_stokes,
+    color = "red",
+    linetype = "solid",
+    linewidth = 0.9,
+    alpha = 0.8
+  ) +
+  labs(x = "SVL endpoint (cm)", y = "Density") +
+  coord_cartesian(xlim = svl_xlim_uni) +
+  theme_science
+
+# ---- TL* bootstrap distribution ----
+p_tl <- ggplot() +
+  geom_histogram(
+    data  = tl_samp_df,
+    aes(x = TL, y = ..density..),
+    bins  = 40,
+    fill  = "lightgreen",
+    color = "black",
+    alpha = 0.6
+  ) +
+  geom_line(
+    data = tl_df,
+    aes(x = TL, y = density),
+    color = "darkgreen",
+    linewidth = 1.1
+  ) +
+  geom_vline(
+    xintercept = map_tl_marg,
+    color = "purple",
+    linetype = "dashed",
+    linewidth = 1.1
+  ) +
+  geom_vline(
+    xintercept = ub_tl_marg,
+    color = "orange",
+    linetype = "dotdash",
+    linewidth = 1.1
+  ) +
+  # Optional: mark Stokes on TL axis
+  geom_vline(
+    xintercept = TL_stokes,
+    color = "red",
+    linetype = "solid",
+    linewidth = 0.9,
+    alpha = 0.8
+  ) +
+  labs(x = "TL endpoint (cm)", y = "Density") +
+  coord_cartesian(xlim = tl_xlim_uni) +
+  theme_science
+
+print(p_svl)
+print(p_tl)
+
+ggsave(file.path(FIG_DIR, "SVL_endpoint_bootstrap.png"),
+       p_svl, dpi = 600, w = 6.5, h = 4.5, units = "in")
+ggsave(file.path(FIG_DIR, "TL_endpoint_bootstrap.png"),
+       p_tl,  dpi = 600, w = 6.5, h = 4.5, units = "in")
 
 
 
