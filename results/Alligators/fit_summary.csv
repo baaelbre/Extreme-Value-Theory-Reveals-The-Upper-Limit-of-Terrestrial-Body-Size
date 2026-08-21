@@ -1,0 +1,2 @@
+"population","n","threshold_cm","n_exc","exceedance_fraction","sigma","xi","se_xi","xi_lower95","xi_upper95","proportion_unbounded","endpoint_cm","endpoint_upper_one_sided95_cm","observed_max_cm","anderson_darling","anderson_darling_p","bootstrap_requested","bootstrap_successful","bootstrap_failed"
+"Male Woodward alligators",2051,325,147,0.0716723549488055,0.0981431517443064,-0.335892731147715,0.0726723380615864,-0.479622529705255,-0.210981127268336,0.0005,435.289434707767,463.39384163087,416.56,0.466977165294338,0.452273863068466,2000,2000,0

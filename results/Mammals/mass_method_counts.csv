@@ -1,0 +1,26 @@
+"mass_method","mass_is_imputed","n_species"
+"Reported",FALSE,3827
+"Assumed isometric based on head-body length",FALSE,361
+"Imputed",TRUE,175
+"Assumed isometric based on skull size",FALSE,81
+"Assumed isometric based on mandible size",FALSE,28
+"As relative of suggested similar size",FALSE,22
+"Assumed isometric based on bone size",FALSE,6
+"Assumed isometric based on teeth size",FALSE,5
+"Assumed isometric based on metacarpal length",FALSE,4
+"Assumed isometric based on centroid size",FALSE,3
+"Assumed isometric based on maximum size",FALSE,2
+"Assumed isometric based on shoulder height",FALSE,2
+"Estimated based on equation from skull length",FALSE,2
+"Assumed isometric based on hand size",FALSE,1
+"Assumed isometric based on length of femur",FALSE,1
+"Assumed isometric based on length of metacarpal",FALSE,1
+"Assumed isometric based on mandible size length",FALSE,1
+"Assumed isometric based on total length",FALSE,1
+"Assumed isometric. It is not stated in the article if it is total or head-body length",FALSE,1
+"Estimated based equation from head body length",FALSE,1
+"Estimated based on average of equations from lower premolar 4, molar 1, and molar 2 area",FALSE,1
+"Estimated based on average of equations from lower premolar row length and lower molar length",FALSE,1
+"Estimated based on equation from M1 length",FALSE,1
+"Estimated based on equation from lower molar occlusal row length for Diprotodontia data set",FALSE,1
+"Estimated based on equation from minimum mediolateral diameter of femur shaft",FALSE,1

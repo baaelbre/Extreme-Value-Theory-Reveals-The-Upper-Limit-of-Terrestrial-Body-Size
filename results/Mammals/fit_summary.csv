@@ -1,0 +1,3 @@
+"dataset","n","threshold_kg","n_exc","exceedance_fraction","sigma","xi","xi_lower95","xi_upper95","proportion_unbounded","endpoint_t","endpoint_upper_one_sided95_t","observed_max_t","anderson_darling","anderson_darling_p","bootstrap_requested","bootstrap_successful","bootstrap_failed"
+"Late-Quaternary fauna",4530,50,303,0.066887417218543,1.98177902038159,-0.282670771899484,-0.377740179108771,-0.191788524612589,0,55.433083506416,256.720472942698,13,0.713400077936797,0.182908545727136,2000,2000,0
+"Extant fauna",4194,50,139,0.0331425846447306,1.24060857767723,-0.155367719360809,-0.316643277373788,-0.0188082427837629,0.0145,146.826350096115,1032730658.22256,4.4,NA,NA,2000,2000,0
